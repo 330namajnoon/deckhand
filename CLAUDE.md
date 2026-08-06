@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Backend** (repo root): CommonJS Node.js server (`server.js`) built on `sm-express-server`, exposing a REST API that orchestrates the utilities in `utils/` and persists deploys in a MariaDB `deploys` table via Prisma (`prisma/schema.prisma`, `database/client.js`).
 - **Frontend** (`public/`): React 19 + TypeScript + Vite + styled-components SPA (react-router) to launch and monitor deploys. The production build (`public/dist`) is served by the backend under `/dist`.
+- **MCP server** (`mcpServer/`): mounted on the same Express app at `POST /mcp`, exposes the same deploy/repository operations as MCP tools for AI agents, authenticated with a Bearer JWT verified against an external auth-server (see "MCP server" below).
 
 ## Package manager
 
@@ -34,7 +35,7 @@ yarn prisma migrate deploy  # apply committed prisma/migrations/ as-is, no shado
 yarn prisma studio          # browse the deploys table
 ```
 
-Secrets live in a root `.env` (gitignored; `.env.example` is the template): `GITLAB_HOST`, `GITLAB_TOKEN`, `ENTORNO_NEW_PASSWORD`, `PORT`, `DATABASE_URL`. Both entry points (`server.js`, `main.js`) call `require('dotenv').config()` on their first line — it must run before any local `require`, since `gitlab/index.js` reads the env at import time. Never commit the `.env` or copy its values elsewhere.
+Secrets live in a root `.env` (gitignored; `.env.example` is the template): `GITLAB_HOST`, `GITLAB_TOKEN`, `ENTORNO_NEW_PASSWORD`, `PORT`, `DATABASE_URL`, `MCP_PUBLIC_URL`, and the `MCP_AUTH_*` vars (see "MCP server" below). Both entry points (`server.js`, `main.js`) call `require('dotenv').config()` on their first line — it must run before any local `require`, since `gitlab/index.js` reads the env at import time. Never commit the `.env` or copy its values elsewhere.
 
 In production the app runs under pm2 via `ecosystem.config.js` (versioned, no secrets inside — it loads the same `.env` with dotenv and passes it as pm2's `env`). After editing `.env`, apply it with `pm2 reload ecosystem.config.js --update-env`.
 
@@ -58,9 +59,12 @@ MariaDB runs locally on the same host as the backend (systemd service `mariadb`)
 ## Project structure
 
 ```
-server.js          — starts sm-express-server on :4000, mounts router and serves public/dist under /dist (with index.html fallback for react-router); logs unhandledRejection/uncaughtException via logError
+server.js          — starts sm-express-server on :4000, mounts router and serves public/dist under /dist (with index.html fallback for react-router), mounts the MCP server under /mcp; logs unhandledRejection/uncaughtException via logError
 router/index.js    — declares the REST routes, delegating to controllers/ (each wrapped with router/withErrorLogging.js: logs the error and responds 500)
-controllers/       — one controller per endpoint, re-exported from controllers/index.js
+controllers/       — one controller per endpoint, re-exported from controllers/index.js; the 4 that wrap non-trivial deploy operations (deployEntornoController, deleteDeployController, openVscodeController, redeployEntornoController) are thin callers of services/
+services/          — shared business logic for the 4 non-trivial deploy operations (create/delete/redeploy/open-vscode), called by both controllers/ (REST) and mcpServer/tools/ (MCP) so the two surfaces never diverge; re-exported from services/index.js; throw utils/HttpError.js on expected failures (404/409/400/502)
+mcpServer/         — MCP server exposing deckhand's operations as tools for AI agents (see "MCP server" below); named mcpServer/ rather than mcp/ so its directory name doesn't collide with the /mcp route matched by express.static's whole-repo-root static serving (see server.js); includes wellKnown.js (OAuth Protected Resource Metadata)
+main.js            — legacy CLI-style entry point; orchestrates utils directly
 main.js            — legacy CLI-style entry point; orchestrates utils directly
 gitlab/index.js    — configured @gitbeaker/rest client
 utils/             — one function per file, re-exported from utils/index.js
@@ -90,6 +94,24 @@ public/            — frontend (see below)
 | POST | `/deploys/:id/redeploy` | redeployEntornoController |
 | POST | `/deploy` | deployEntornoController |
 
+## MCP server (mcpServer/)
+
+`mcpServer/` mounts a [Model Context Protocol](https://modelcontextprotocol.io) server on the same Express app (`server.app`) at `POST /mcp`, mirroring the REST API above as tools so AI agents can drive deckhand. Uses `@modelcontextprotocol/sdk`'s `StreamableHTTPServerTransport` in stateless mode (`sessionIdGenerator: undefined`): a fresh `McpServer` + transport is built per request (`mcpServer/server.js`, `mcpServer/router.js`), so every call is authenticated independently and there's no session state to keep in sync across pm2/processes.
+
+Deckhand is only the **resource server** here — the auth-server (a separate project, `../auth-server`, an `oidc-provider`-based OAuth 2.1/OIDC server at `https://auth.sinul.es`) is the authorization server. This is what makes an AI agent able to "connect to deckhand" the same way one connects to a Gmail/Vercel MCP connector — open a browser, log in and authorize on the auth-server, get redirected back with credentials — without deckhand or its operator having to hand-register every possible agent as a static OAuth client:
+
+- `mcpServer/wellKnown.js` — serves Protected Resource Metadata (RFC 9728) at `GET /.well-known/oauth-protected-resource/mcp` (and aliased at the `.well-known` root), built from `MCP_PUBLIC_URL`/`MCP_AUTH_ISSUER`/`MCP_AUTH_REQUIRED_SCOPES`. This is the discovery document an MCP client reads to learn which authorization server to use — deckhand never serves `/.well-known/oauth-authorization-server` itself (that metadata legitimately lives on the auth-server's own origin, not deckhand's).
+- `mcpServer/auth/` — Bearer JWT auth, applied as router-level middleware before any tool runs. `tokenVerifier.js` verifies the token (signature via JWKS or a static `MCP_AUTH_PUBLIC_KEY`, plus issuer/audience/algorithm) against the external auth-server and maps its claims to the SDK's `AuthInfo` shape; claim names are confirmed against the real auth-server (`oidc-provider`'s JWT access token format): always `client_id` (never `azp`), `scope` as a space-separated string. `jwksClient.js` is a singleton `jwks-rsa` client (same "build once from env, reuse" pattern as `gitlab/index.js`); `index.js` wires both into the SDK's own `requireBearerAuth` middleware, passing `resourceMetadataUrl` so a 401 without a token includes a `WWW-Authenticate: Bearer resource_metadata="..."` header pointing at `wellKnown.js` — this is the actual thread MCP clients pull to auto-discover the auth-server, no manual client configuration needed.
+- On the auth-server side, agents self-register via Dynamic Client Registration (`features.registration` in `../auth-server/packages/api/src/config/provider.ts`) instead of being added by hand to `config/clients.ts` — see that repo's CLAUDE.md. `resourceIndicators.getResourceServerInfo` there recognizes deckhand's resource URL (`DECKHAND_RESOURCE_URL` / `MCP_AUTH_AUDIENCE`, must match on both sides) and mints JWT access tokens scoped to it.
+- `mcpServer/tools/` — one tool per file (zod `inputSchema`, `handler`), re-exported from `mcpServer/tools/index.js`, registered by `mcpServer/registerTools.js`. The 6 read-only/simple tools call `utils/*` directly (same as their REST controllers); `delete_deploy`, `open_vscode`, `redeploy_entorno`, `create_deploy` call the shared `services/*` (see "Project structure" above) so behavior can't drift from the REST endpoints.
+- `mcpServer/withToolErrorLogging.js` — wraps every tool handler: on success returns its result as-is; on a thrown error, logs via `utils/logError.js` (unless `error.alreadyLogged`, e.g. a `services/*` `HttpError`) and returns `{isError: true, content: [...]}` — the MCP-native way to surface a failed call to the agent, mirroring what `router/withErrorLogging.js` does for REST.
+- `create_deploy` and `redeploy_entorno` keep the REST API's fire-and-forget shape: the tool returns immediately once the deploy row is created/updated, with a note telling the agent to poll `get_deploy` (same polling pattern as the frontend's `POLL_INTERVAL`) until the status is `listo`/`error`.
+- New `.env` vars (see `.env.example`): `MCP_PUBLIC_URL` (deckhand's own public URL, used to build the metadata above), `MCP_AUTH_ISSUER`, `MCP_AUTH_AUDIENCE`, `MCP_AUTH_JWKS_URI` (or `MCP_AUTH_PUBLIC_KEY` as a static-key fallback), `MCP_AUTH_ALGORITHMS`, `MCP_AUTH_REQUIRED_SCOPES`.
+
+### Infrastructure
+
+`https://deckhand.sinul.es` lives in its own `server{}` block (subdomain, not a path under `sinul.es` — the frontend/API assume root-relative routes, see `public/src/constants.ts` and `vite.config.ts`'s `base: '/dist/'`) inside `/etc/nginx/sites-available/my_projects`, proxying to `localhost:4200` (`PORT` in `.env`). Reference copy versioned in `infra/nginx/deckhand.sinul.es.conf`, same pattern as `../auth-server/infra/nginx/auth.sinul.es.conf`. Certificate managed by certbot.
+
 ### utils/
 
 ```
@@ -103,6 +125,7 @@ listPipelineStages.js  — lists jobs/stages of a pipeline
 createPipeline.js      — triggers a pipeline for a ref
 waitForStage.js        — polls a pipeline until a stage/job reaches a state
 getJobLog.js           — fetches a job's log (trace)
+HttpError.js           — Error subclass with a `status` and `alreadyLogged`; thrown by services/ and mapped back to a response by controllers/ (res.status) and mcpServer/ tools (isError result)
 createBranch.js        — creates a branch in a repo
 deleteBranch.js        — deletes a branch from a repo
 createBranchWithCommit.js — creates a branch whose first commit applies a set of file actions (single pipeline)
@@ -156,6 +179,7 @@ pages/             — one folder per route
 
 - `gitlab/index.js` — exports a configured `@gitbeaker/rest` client (`Gitlab` instance) pointing at the self-hosted instance given by `GITLAB_HOST`. Import it with `require('./gitlab')` and call the API surface directly (e.g. `api.Users.showCurrentUser()`). Do not import the deprecated `@gitbeaker/node` package name.
 - Backend is CommonJS (`require`/`module.exports`); frontend is TypeScript ESM.
-- "One thing per file, re-exported from the folder's `index`" applies everywhere: `utils/`, `controllers/`, and front `components/`/`pages/`.
+- "One thing per file, re-exported from the folder's `index`" applies everywhere: `utils/`, `controllers/`, `services/`, `mcpServer/tools/`, and front `components/`/`pages/`.
+- Business logic shared between the REST API and the MCP server lives in `services/`, not duplicated in `controllers/`/`mcpServer/tools/`. Only add a new `services/*` file when a second surface (MCP, a future CLI, etc.) needs the same non-trivial logic a controller already has — trivial single-`utils/*`-call controllers don't need one.
 - Front components/pages follow the folder convention: `Name/Name.tsx` + `Name/styles.ts` (styled-components, transient `$props` for style-only props) + `Name/index.ts`.
 - All backend URLs used by the front live in `constants.ts` (`API_ROUTES`) — never hardcode fetch URLs in components/pages; do fetches via `apiRequest` or `useFetch` so loading/error handling stays consistent.

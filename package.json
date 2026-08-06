@@ -1,5 +1,6 @@
 {
   "name": "deckhand",
+  "version": "1.0.0",
   "packageManager": "yarn@4.9.1",
   "main": "server.js",
   "scripts": {
@@ -8,11 +9,15 @@
   },
   "dependencies": {
     "@gitbeaker/rest": "^43.8.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@prisma/adapter-mariadb": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "dotenv": "^17.4.2",
+    "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "^4.1.0",
     "mariadb": "^3.5.3",
-    "sm-express-server": "^1.0.6"
+    "sm-express-server": "^1.0.6",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "prisma": "^7.9.1"

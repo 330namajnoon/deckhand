@@ -8,6 +8,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
 const { logError } = require('./utils');
+const { mountMcp } = require('./mcpServer');
 
 // Última red de seguridad: errores que nadie ha capturado quedan registrados
 // en database/errors.log antes de que el proceso siga (o muera bajo pm2).
@@ -30,6 +31,11 @@ server.app.use('/dist', express.static(distDir));
 server.app.get('/dist/*', (_req, res) => {
 	res.sendFile(path.join(distDir, 'index.html'));
 });
+
+// Servidor MCP: expone las mismas operaciones que la REST API como tools
+// para agentes de IA, autenticado con Bearer JWT contra el auth-server
+// (ver mcp/auth/).
+mountMcp(server.app);
 
 server.start(() => {
 	console.log(`Server is running on port ${port}`);
