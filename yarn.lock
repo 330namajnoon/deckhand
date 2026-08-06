@@ -223,15 +223,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"asystent@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "asystent@workspace:."
-  dependencies:
-    "@gitbeaker/rest": "npm:^43.8.0"
-    sm-express-server: "npm:^1.0.6"
-  languageName: unknown
-  linkType: soft
-
 "balanced-match@npm:^4.0.2":
   version: 4.0.4
   resolution: "balanced-match@npm:4.0.4"
@@ -440,6 +431,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"deckhand@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "deckhand@workspace:."
+  dependencies:
+    "@gitbeaker/rest": "npm:^43.8.0"
+    dotenv: "npm:^17.4.2"
+    sm-express-server: "npm:^1.0.6"
+  languageName: unknown
+  linkType: soft
+
 "depd@npm:2.0.0, depd@npm:~2.0.0":
   version: 2.0.0
   resolution: "depd@npm:2.0.0"
@@ -451,6 +452,13 @@ __metadata:
   version: 1.2.0
   resolution: "destroy@npm:1.2.0"
   checksum: 10c0/bd7633942f57418f5a3b80d5cb53898127bcf53e24cdf5d5f4396be471417671f0fee48a4ebe9a1e9defbde2a31280011af58a57e090ff822f589b443ed4e643
+  languageName: node
+  linkType: hard
+
+"dotenv@npm:^17.4.2":
+  version: 17.4.2
+  resolution: "dotenv@npm:17.4.2"
+  checksum: 10c0/164f8e77a646c8446867d5b588d26ea6005c8ea7c5eb41cf926f6113d23f2191355f6e0cfd95ea9bab98394a5b0a3f1e51a8399711b666fe55cc7b0bd745f942
   languageName: node
   linkType: hard
 

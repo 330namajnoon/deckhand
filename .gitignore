@@ -3,7 +3,6 @@ public/node_modules/
 public/dist/
 
 # Secretos: token de GitLab, contraseñas de entornos, etc.
-ecosystem.config.js
 .env
 .env.*
 !.env.example

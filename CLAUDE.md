@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-"asystent" is a Node.js assistant for automating GitLab workflows (pipelines, branches, environment creation/installation). It has two parts:
+"deckhand" is a Node.js assistant for automating GitLab workflows (pipelines, branches, environment creation/installation). It has two parts:
 
 - **Backend** (repo root): CommonJS Node.js server (`server.js`) built on `sm-express-server`, exposing a REST API that orchestrates the utilities in `utils/` and persists deploys in `database/deploys.json`.
 - **Frontend** (`public/`): React 19 + TypeScript + Vite + styled-components SPA (react-router) to launch and monitor deploys. The production build (`public/dist`) is served by the backend under `/dist`.
@@ -28,7 +28,9 @@ yarn lint                  # eslint .
 yarn node -e "require('./gitlab/index.js').Users.showCurrentUser().then(u => console.log(u.username))"
 ```
 
-In production the app runs under pm2 via `ecosystem.config.js` (gitignored — contains `GITLAB_TOKEN`, `ENTORNO_NEW_PASSWORD` and other secrets; never commit it or copy its values elsewhere).
+Secrets live in a root `.env` (gitignored; `.env.example` is the template): `GITLAB_HOST`, `GITLAB_TOKEN`, `ENTORNO_NEW_PASSWORD`, `PORT`. Both entry points (`server.js`, `main.js`) call `require('dotenv').config()` on their first line — it must run before any local `require`, since `gitlab/index.js` reads the env at import time. Never commit the `.env` or copy its values elsewhere.
+
+In production the app runs under pm2 via `ecosystem.config.js` (versioned, no secrets inside — it loads the same `.env` with dotenv and passes it as pm2's `env`). After editing `.env`, apply it with `pm2 reload ecosystem.config.js --update-env`.
 
 ## Project structure
 
@@ -41,7 +43,8 @@ gitlab/index.js    — configured @gitbeaker/rest client
 utils/             — one function per file, re-exported from utils/index.js
 database/deploys.json — JSON persistence of deploys (read/written by save/update/removeDeploy)
 database/errors.log   — backend error log (one JSON line per error, written by utils/logError.js; gitignored)
-ecosystem.config.js   — pm2 config + env secrets (gitignored)
+ecosystem.config.js   — pm2 config; reads the root .env with dotenv (versioned, holds no secrets)
+.env                  — secrets: GITLAB_HOST/TOKEN, ENTORNO_NEW_PASSWORD, PORT (gitignored; see .env.example)
 scripts/           — (empty for now)
 public/            — frontend (see below)
 ```

@@ -1,3 +1,6 @@
+// Debe ir antes que cualquier require propio: gitlab/index.js lee GITLAB_HOST y
+// GITLAB_TOKEN al importarse. Bajo pm2 el env ya viene puesto y dotenv no lo pisa.
+require('dotenv').config();
 
 const { Server } = require('sm-express-server');
 const router = require('./router');

@@ -1,6 +1,6 @@
 // Constantes de la aplicación.
 
-// URL base del servidor de asystent. Se puede sobrescribir con la variable
+// URL base del servidor de deckhand. Se puede sobrescribir con la variable
 // VITE_API_URL en un fichero .env (ej: VITE_API_URL=http://10.0.0.5:4000).
 // En el build de producción el front se sirve desde el propio backend
 // (localhost:4000/dist), así que la API se llama con rutas relativas ('').

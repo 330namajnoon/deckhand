@@ -1,4 +1,4 @@
-# asystent
+# deckhand
 
 Asistente en Node.js para automatizar flujos de trabajo de GitLab: creación de
 ramas, lanzamiento de pipelines y creación e instalación de entornos de tarea.
@@ -34,9 +34,15 @@ cp database/deploys.example.json database/deploys.json
 
 ## Configuración
 
-Las variables de entorno están documentadas en [.env.example](.env.example).
-El proyecto **no** carga ficheros `.env` automáticamente: expórtalas en el shell
-o defínelas en el `env` de `ecosystem.config.js` (pm2).
+Copia la plantilla y rellena los valores:
+
+```bash
+cp .env.example .env
+```
+
+El `.env` de la raíz es la única fuente de secretos. Lo cargan tanto `server.js`
+y `main.js` (vía `dotenv`) como `ecosystem.config.js`, así que sirve igual para
+`yarn start` que para pm2. No se versiona.
 
 | Variable | Descripción |
 |---|---|
@@ -66,8 +72,12 @@ Comprobación rápida de conectividad con GitLab:
 yarn node -e "require('./gitlab/index.js').Users.showCurrentUser().then(u => console.log(u.username))"
 ```
 
-En producción se ejecuta con pm2 mediante `ecosystem.config.js` (no versionado:
-contiene los secretos).
+En producción se ejecuta con pm2:
+
+```bash
+pm2 start ecosystem.config.js
+pm2 reload ecosystem.config.js --update-env   # tras editar el .env
+```
 
 ## API
 
@@ -92,6 +102,6 @@ convenciones del proyecto (una función por fichero re-exportada desde el
 
 ## Aviso
 
-`database/deploys.json`, `database/errors.log` y `ecosystem.config.js` no se
-versionan: contienen credenciales SSH, direcciones y datos de infraestructura
-de los entornos.
+`.env`, `database/deploys.json` y `database/errors.log` no se versionan:
+contienen el token de GitLab, credenciales SSH, direcciones y datos de
+infraestructura de los entornos.

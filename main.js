@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const { findRepository, listPipelines, listPipelineStages, getJobLog, createEntorno, installEntorno, deleteBranch, openRemoteVscode } = require("./utils");
 
 
