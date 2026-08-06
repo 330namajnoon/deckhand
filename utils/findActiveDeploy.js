@@ -1,7 +1,4 @@
-const fs = require("fs/promises");
-const path = require("path");
-
-const DEPLOYS_FILE = path.join(__dirname, "..", "database", "deploys.json");
+const prisma = require("../database/client");
 
 /**
  * Busca, entre los deploys guardados, uno en curso (estado "creando" o
@@ -12,18 +9,17 @@ const DEPLOYS_FILE = path.join(__dirname, "..", "database", "deploys.json");
  * @param {number|string} projectId - Id del repositorio.
  * @param {string} branchName - Nombre de la tarea (ej. "STORE-2080").
  * @param {'entorno'|'test'} type - Tipo de entorno.
- * @returns {Promise<object|undefined>} El deploy en curso, si lo hay.
+ * @returns {Promise<object|null>} El deploy en curso, si lo hay.
  */
 async function findActiveDeploy(projectId, branchName, type) {
-  const deploys = JSON.parse(await fs.readFile(DEPLOYS_FILE, "utf8"));
-
-  return deploys.find(
-    (deploy) =>
-      ["creando", "instalando"].includes(deploy.status) &&
-      deploy.branchName === branchName &&
-      deploy.type === type &&
-      String(deploy.projectId ?? deploy.project?.id) === String(projectId)
-  );
+  return prisma.deploy.findFirst({
+    where: {
+      status: { in: ["creando", "instalando"] },
+      branchName,
+      type,
+      projectId: Number(projectId),
+    },
+  });
 }
 
 module.exports = findActiveDeploy;

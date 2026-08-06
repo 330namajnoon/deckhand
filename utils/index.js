@@ -1,6 +1,8 @@
 
 const findActiveDeploy = require("./findActiveDeploy");
 const findRepository = require("./findRepository");
+const getDeploy = require("./getDeploy");
+const listDeploys = require("./listDeploys");
 const listRepositories = require("./listRepositories");
 const logError = require("./logError");
 const listBranches = require("./listBranches");
@@ -32,6 +34,8 @@ const updateDeploy = require("./updateDeploy");
 module.exports = {
   findActiveDeploy,
   findRepository,
+  getDeploy,
+  listDeploys,
   listRepositories,
   logError,
   listBranches,

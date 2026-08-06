@@ -31,3 +31,10 @@ public/.yarn/*
 .idea/
 .DS_Store
 *.log
+
+/generated/prisma
+
+# Skills de asistentes de IA instaladas por "prisma init" (no son del proyecto)
+.windsurf/
+.agents/
+skills-lock.json

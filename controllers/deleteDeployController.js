@@ -1,9 +1,5 @@
 const { createController } = require("sm-express-server");
-const fs = require("fs/promises");
-const path = require("path");
-const { deleteBranch, findRepository, logError, removeDeploy } = require("../utils");
-
-const DEPLOYS_FILE = path.join(__dirname, "..", "database", "deploys.json");
+const { deleteBranch, findRepository, getDeploy, logError, removeDeploy } = require("../utils");
 
 const isBranchNotFound = (error) =>
 	/not found|404/i.test(error?.cause?.description ?? error?.message ?? "");
@@ -14,8 +10,7 @@ const isBranchNotFound = (error) =>
 const deleteDeployController = createController(async (req, res) => {
 	const { id } = req.params;
 
-	const deploys = JSON.parse(await fs.readFile(DEPLOYS_FILE, "utf8"));
-	const deploy = deploys.find((d) => d.id === id);
+	const deploy = await getDeploy(id);
 
 	if (!deploy) {
 		return res.status(404).send({ error: `No existe ningún deploy con id ${id}` });

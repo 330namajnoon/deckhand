@@ -1,19 +1,17 @@
-const fs = require("fs/promises");
-const path = require("path");
+const prisma = require("../database/client");
 
-const DEPLOYS_FILE = path.join(__dirname, "..", "database", "deploys.json");
-
+// Los llamantes pasan claves a `undefined` para limpiar un campo (p. ej.
+// borrar el error al reintentar un redeploy); Prisma ignora `undefined` en
+// `data`, así que aquí se traduce a `null` para conservar ese comportamiento.
 const updateDeploy = async (id, changes) => {
-	const deploys = JSON.parse(await fs.readFile(DEPLOYS_FILE, "utf8"));
+	const data = Object.fromEntries(Object.entries(changes).map(([key, value]) => [key, value === undefined ? null : value]));
 
-	const index = deploys.findIndex((deploy) => deploy.id === id);
-	if (index === -1) throw new Error(`No existe ningún deploy con id ${id}`);
-
-	deploys[index] = { ...deploys[index], ...changes };
-
-	await fs.writeFile(DEPLOYS_FILE, JSON.stringify(deploys, null, 2));
-
-	return deploys[index];
+	try {
+		return await prisma.deploy.update({ where: { id }, data });
+	} catch (error) {
+		if (error.code === "P2025") throw new Error(`No existe ningún deploy con id ${id}`);
+		throw error;
+	}
 };
 
 module.exports = updateDeploy;

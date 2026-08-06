@@ -1,0 +1,51 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum DeployStatus {
+  creando
+  instalando
+  listo
+  error
+}
+
+enum EntornoType {
+  entorno
+  test
+}
+
+// Un deploy de entorno GitLab (branch + pipeline + instalación SSH), antes
+// persistido en database/deploys.json. "project" guarda una copia de los
+// datos del repo GitLab (id, urls, etc.) tal y como los devolvía findRepository.
+model Deploy {
+  id                String        @id
+  branchName        String
+  projectId         Int?
+  projectName       String
+  ref               String
+  type              EntornoType?
+  entornoUrl        String?       @db.Text
+  messenger         Boolean?
+  status            DeployStatus
+  createdAt         DateTime
+  fechaCaducidad    String?
+  usuarioSsh        String?
+  contrasenaSsh     String?
+  servidorSsh       String?
+  puertoSsh         String?
+  cadenaConexionSsh String?       @db.Text
+  rutaRaiz          String?       @db.Text
+  url               String?       @db.Text
+  ideKeyXdebug      String?
+  entornoName       String?
+  error             String?       @db.Text
+  project           Json?
+
+  @@map("deploys")
+}

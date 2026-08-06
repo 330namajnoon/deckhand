@@ -3,11 +3,18 @@
   "packageManager": "yarn@4.9.1",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@gitbeaker/rest": "^43.8.0",
+    "@prisma/adapter-mariadb": "^7.9.1",
+    "@prisma/client": "^7.9.1",
     "dotenv": "^17.4.2",
+    "mariadb": "^3.5.3",
     "sm-express-server": "^1.0.6"
+  },
+  "devDependencies": {
+    "prisma": "^7.9.1"
   }
 }
