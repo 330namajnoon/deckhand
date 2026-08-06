@@ -1,0 +1,12 @@
+{
+  "name": "asystent",
+  "packageManager": "yarn@4.9.1",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@gitbeaker/rest": "^43.8.0",
+    "sm-express-server": "^1.0.6"
+  }
+}

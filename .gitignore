@@ -1,0 +1,34 @@
+node_modules/
+public/node_modules/
+public/dist/
+
+# Secretos: token de GitLab, contraseñas de entornos, etc.
+ecosystem.config.js
+.env
+.env.*
+!.env.example
+
+# Base de datos local de deploys: contiene contraseñas SSH, IPs y hostnames
+# internos de los entornos. Solo se versiona la plantilla vacía.
+database/deploys.json
+# Log de errores del backend (utils/logError.js)
+database/errors.log
+
+# Artefactos de Yarn 4 (nodeLinker: node-modules)
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+!.yarn/versions
+public/.yarn/*
+!public/.yarn/patches
+!public/.yarn/releases
+!public/.yarn/plugins
+!public/.yarn/versions
+
+# Configuración local de herramientas / SO
+.claude/
+.vscode/
+.idea/
+.DS_Store
+*.log
