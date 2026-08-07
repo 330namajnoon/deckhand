@@ -1,5 +1,7 @@
 const listRepositories = require("./listRepositories");
 const getRepoCatalog = require("./getRepoCatalog");
+const listSkills = require("./listSkills");
+const getSkill = require("./getSkill");
 const getRepositoryBranches = require("./getRepositoryBranches");
 const getRepositoryTree = require("./getRepositoryTree");
 const getRepositoryFile = require("./getRepositoryFile");
@@ -16,6 +18,8 @@ const createDeploy = require("./createDeploy");
 module.exports = [
 	listRepositories,
 	getRepoCatalog,
+	listSkills,
+	getSkill,
 	getRepositoryBranches,
 	getRepositoryTree,
 	getRepositoryFile,

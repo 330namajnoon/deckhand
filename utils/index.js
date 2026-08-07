@@ -3,10 +3,12 @@ const findActiveDeploy = require("./findActiveDeploy");
 const findRepository = require("./findRepository");
 const getDeploy = require("./getDeploy");
 const getRepoCatalog = require("./getRepoCatalog");
+const getSkill = require("./getSkill");
 const HttpError = require("./HttpError");
 const listActiveDeploys = require("./listActiveDeploys");
 const listDeploys = require("./listDeploys");
 const listRepositories = require("./listRepositories");
+const listSkills = require("./listSkills");
 const logError = require("./logError");
 const listBranches = require("./listBranches");
 const listRepositoryTree = require("./listRepositoryTree");
@@ -28,6 +30,7 @@ const installEntorno = require("./installEntorno");
 const loginEntorno = require("./loginEntorno");
 const runExpect = require("./runExpect");
 const openRemoteVscode = require("./openRemoteVscode");
+const readSkillFile = require("./readSkillFile");
 const removeDeploy = require("./removeDeploy");
 const retryTransient = require("./retryTransient");
 const saveDeploy = require("./saveDeploy");
@@ -39,10 +42,12 @@ module.exports = {
   findRepository,
   getDeploy,
   getRepoCatalog,
+  getSkill,
   HttpError,
   listActiveDeploys,
   listDeploys,
   listRepositories,
+  listSkills,
   logError,
   listBranches,
   listRepositoryTree,
@@ -64,6 +69,7 @@ module.exports = {
   loginEntorno,
   runExpect,
   openRemoteVscode,
+  readSkillFile,
   removeDeploy,
   retryTransient,
   saveDeploy,

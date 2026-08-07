@@ -869,6 +869,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"adm-zip@npm:^0.6.0":
+  version: 0.6.0
+  resolution: "adm-zip@npm:0.6.0"
+  checksum: 10c0/440f37590c62255226f1db4cb1a5a618879347f5106ad5b9a24c67c20f9a54bd5b4efcd2b35af858e39c7885d05f4bd35f4c2f42378c98d13f779be380bc9ae4
+  languageName: node
+  linkType: hard
+
 "ajv-formats@npm:^3.0.1":
   version: 3.0.1
   resolution: "ajv-formats@npm:3.0.1"
@@ -1373,6 +1380,7 @@ __metadata:
     "@modelcontextprotocol/sdk": "npm:^1.30.0"
     "@prisma/adapter-mariadb": "npm:^7.9.1"
     "@prisma/client": "npm:^7.9.1"
+    adm-zip: "npm:^0.6.0"
     dotenv: "npm:^17.4.2"
     jsonwebtoken: "npm:^9.0.3"
     jwks-rsa: "npm:^4.1.0"
