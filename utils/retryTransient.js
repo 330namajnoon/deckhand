@@ -24,7 +24,16 @@ async function retryTransient(fn, { attempts = 4, delayMs = 3000 } = {}) {
     try {
       return await fn();
     } catch (error) {
-      if (attempt >= attempts || !isTransientError(error)) throw error;
+      if (!isTransientError(error)) throw error;
+      if (attempt >= attempts) {
+        // "fetch failed" a secas no dice nada de la causa real: casi siempre es
+        // que el servidor de deckhand no tiene conectividad (VPN caída, DNS,
+        // etc.) con GITLAB_HOST, no un problema transitorio de verdad.
+        throw new Error(
+          `No se ha podido contactar con GitLab (${process.env.GITLAB_HOST ?? "GITLAB_HOST"}) tras ${attempts} intentos — revisa la VPN/conectividad del servidor de deckhand. Causa: ${error.cause?.code ?? error.cause?.name}`,
+          { cause: error }
+        );
+      }
       console.warn(`⚠️  Corte de red hablando con GitLab, reintento ${attempt}/${attempts - 1}: ${error.cause?.code ?? error.cause?.name}`);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }

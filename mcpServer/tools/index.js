@@ -1,8 +1,12 @@
 const listRepositories = require("./listRepositories");
+const getRepoCatalog = require("./getRepoCatalog");
 const getRepositoryBranches = require("./getRepositoryBranches");
 const getRepositoryTree = require("./getRepositoryTree");
 const getRepositoryFile = require("./getRepositoryFile");
 const listDeploys = require("./listDeploys");
+const listActiveDeploys = require("./listActiveDeploys");
+const listPipelines = require("./listPipelines");
+const getPipelineJobs = require("./getPipelineJobs");
 const getDeploy = require("./getDeploy");
 const deleteDeploy = require("./deleteDeploy");
 const openVscode = require("./openVscode");
@@ -11,10 +15,14 @@ const createDeploy = require("./createDeploy");
 
 module.exports = [
 	listRepositories,
+	getRepoCatalog,
 	getRepositoryBranches,
 	getRepositoryTree,
 	getRepositoryFile,
 	listDeploys,
+	listActiveDeploys,
+	listPipelines,
+	getPipelineJobs,
 	getDeploy,
 	deleteDeploy,
 	openVscode,

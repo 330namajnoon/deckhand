@@ -2,7 +2,9 @@
 const findActiveDeploy = require("./findActiveDeploy");
 const findRepository = require("./findRepository");
 const getDeploy = require("./getDeploy");
+const getRepoCatalog = require("./getRepoCatalog");
 const HttpError = require("./HttpError");
+const listActiveDeploys = require("./listActiveDeploys");
 const listDeploys = require("./listDeploys");
 const listRepositories = require("./listRepositories");
 const logError = require("./logError");
@@ -36,7 +38,9 @@ module.exports = {
   findActiveDeploy,
   findRepository,
   getDeploy,
+  getRepoCatalog,
   HttpError,
+  listActiveDeploys,
   listDeploys,
   listRepositories,
   logError,

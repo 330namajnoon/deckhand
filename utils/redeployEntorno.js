@@ -45,7 +45,7 @@ async function redeployEntorno(branchName, repoId, variables) {
   const pipeline = await createPipeline(project.id, branchName, variables);
   console.log(`✅ Pipeline #${pipeline.id} (${pipeline.webUrl ?? ''})`);
 
-  const stage = await waitForStage(project.id, pipeline.id, 'deploy_workers');
+  const stage = await waitForStage(project.id, pipeline.id, 'deploy_workers', pipeline.webUrl);
   console.log(`✅ deploy_workers terminado con éxito`);
 
   const job = stage.jobs.find(j => j.name === 'deploy_workers');

@@ -1,3 +1,4 @@
+const api = require('../gitlab');
 const createBranch = require("./createBranch");
 const createBranchWithCommit = require("./createBranchWithCommit");
 const duplicateTestEnvFolder = require("./duplicateTestEnvFolder");
@@ -6,22 +7,10 @@ const findRepository = require("./findRepository");
 const getJobLog = require("./getJobLog");
 const listPipelines = require("./listPipelines");
 const parseEntornoLog = require("./parseEntornoLog");
+const { SYNC_ENV_PROJECTS, FRONTEND_TEST_PROJECTS, MESSENGER_PROJECTS } = require("./repoRoles");
+const retryTransient = require("./retryTransient");
 const syncEntornoEnv = require("./syncEntornoEnv");
 const waitForStage = require("./waitForStage");
-
-// Proyectos cuyo envs/.env.entorno se sincroniza (API_MONO_URL y
-// STORE_API_URL) cuando se despliega apuntando a otro entorno.
-const SYNC_ENV_PROJECTS = ["store-backend-pt", "store-backend-es"];
-
-// Frontends que en los entornos de tipo test cargan su configuración desde
-// envs/<rama>: la rama se crea duplicando envs/template-branches-test con el
-// nombre de la rama y, si hay entorno con el que sincronizar, apuntando el
-// window.env_target de environment.js a su url.
-const FRONTEND_TEST_PROJECTS = ["store-frontend-v2-es", "store-frontend-v2-pt"];
-
-// Proyectos en los que se puede habilitar el messenger (supervisor +
-// transports del bloque when@entorno de messenger.yaml).
-const MESSENGER_PROJECTS = ["store-api-es", "store-api-pt"];
 
 /**
  * Crea un entorno para una tarea a partir del nombre de la tarea, el
@@ -134,6 +123,12 @@ async function createEntorno(taskName, repoId, ref, type = 'entorno', entornoUrl
         throw error;
       }
       console.log(`ℹ️  La rama ya existía, se reutiliza`);
+
+      // Sin newBranch.sha no se puede identificar el pipeline correcto más
+      // abajo (ver comentario junto a la búsqueda del pipeline), así que hay
+      // que consultar el sha actual de la rama reutilizada.
+      const branch = await retryTransient(() => api.Branches.show(project.id, entornoName));
+      newBranch = { name: entornoName, ref, sha: branch.commit.id };
     }
   }
 
@@ -142,13 +137,21 @@ async function createEntorno(taskName, repoId, ref, type = 'entorno', entornoUrl
   // pipelines no debe tirar el deploy abajo (el pipeline puede seguir
   // creándose perfectamente en GitLab): se tolera y se reintenta dentro del
   // mismo plazo, solo se lanza si el plazo se agota.
+  //
+  // El nombre de rama del entorno es determinista (se reutiliza en cada
+  // redeploy/reintento de la misma tarea+repo), así que puede haber pipelines
+  // antiguos en esa misma rama. Filtrar solo por ref no basta: si este sondeo
+  // llega antes de que GitLab cree el pipeline nuevo, `find` se queda con uno
+  // viejo (ya terminado, quizá failed) y waitForStage falla al momento con un
+  // error que no tiene nada que ver con este deploy. Comparar además el sha
+  // con el del commit recién creado (newBranch.sha) evita confundirlos.
   console.log(`🚀 Buscando pipeline de la rama...`);
   let pipline;
   const pipelineDeadline = Date.now() + 120000;
   while (true) {
     try {
       const piplines = await listPipelines(project.id, { ref: entornoName });
-      pipline = piplines.find(p => p.ref === entornoName);
+      pipline = piplines.find(p => p.ref === entornoName && p.sha === newBranch.sha);
       if (pipline) break;
     } catch (error) {
       console.warn(`⚠️  Error listando pipelines, se reintenta: ${error?.cause?.description ?? error.message}`);
@@ -160,7 +163,7 @@ async function createEntorno(taskName, repoId, ref, type = 'entorno', entornoUrl
   }
   console.log(`✅ Pipeline #${pipline.id} (${pipline.webUrl ?? ''})`);
 
-  const stage = await waitForStage(project.id, pipline.id, 'deploy_workers');
+  const stage = await waitForStage(project.id, pipline.id, 'deploy_workers', pipline.webUrl);
   console.log(`✅ deploy_workers terminado con éxito`);
 
   const job = stage.jobs.find(j => j.name === 'deploy_workers');

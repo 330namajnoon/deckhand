@@ -31,6 +31,7 @@ public/.yarn/*
 .idea/
 .DS_Store
 *.log
+*.ovpn
 
 /generated/prisma
 

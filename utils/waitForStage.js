@@ -1,4 +1,10 @@
+const getJobLog = require("./getJobLog");
 const listPipelineStages = require("./listPipelineStages");
+
+// Cuántos caracteres finales del log del job fallido se incluyen en el
+// mensaje de error: el log completo puede ser enorme (y el error se guarda
+// en una columna TEXT), pero el motivo del fallo casi siempre está al final.
+const FAILED_JOB_LOG_TAIL_CHARS = 8000;
 
 /**
  * Espera a que un stage de un pipeline termine en success, mostrando un
@@ -8,9 +14,11 @@ const listPipelineStages = require("./listPipelineStages");
  * @param {number|string} projectId - Id del proyecto.
  * @param {number} pipelineId - Id del pipeline.
  * @param {string} stageName - Nombre del stage a esperar, ej. "deploy_workers".
+ * @param {string} [pipelineWebUrl] - Url del pipeline (la que devuelve
+ *     listPipelines), solo para incluirla en el mensaje si el stage falla.
  * @returns {Promise<{name: string, status: string, jobs: Array}>} El stage terminado en success.
  */
-async function waitForStage(projectId, pipelineId, stageName) {
+async function waitForStage(projectId, pipelineId, stageName, pipelineWebUrl) {
   const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   const startTime = Date.now();
   let frame = 0;
@@ -58,7 +66,25 @@ async function waitForStage(projectId, pipelineId, stageName) {
 
       if (stages.some(s => ['failed', 'canceled'].includes(s.status))) {
         const stage = stages.find(s => ['failed', 'canceled'].includes(s.status));
-        throw new Error(`El stage ${stage.name} ha terminado con estado "${stage.status}"`);
+        const failedJob = stage.jobs.find(j => ['failed', 'canceled'].includes(j.status)) ?? stage.jobs[0];
+
+        // El log del job fallido es lo que le permite a quien lea el error (una
+        // IA vía MCP, o quien mire deploys.error) diagnosticar la causa real sin
+        // tener que entrar a GitLab a mano.
+        let logExcerpt = '';
+        try {
+          const log = await getJobLog(projectId, failedJob.id);
+          logExcerpt = log?.length > FAILED_JOB_LOG_TAIL_CHARS
+            ? `[...]\n${log.slice(-FAILED_JOB_LOG_TAIL_CHARS)}`
+            : log;
+        } catch (error) {
+          logExcerpt = `(no se ha podido obtener el log del job: ${error?.cause?.description ?? error.message})`;
+        }
+
+        const pipelineRef = pipelineWebUrl ? ` — pipeline: ${pipelineWebUrl}` : '';
+        throw new Error(
+          `El stage ${stage.name} ha terminado con estado "${stage.status}" (job "${failedJob.name}": ${failedJob.webUrl})${pipelineRef}.\n\nLog del job:\n${logExcerpt}`
+        );
       }
 
       await new Promise(resolve => setTimeout(resolve, 10000));
