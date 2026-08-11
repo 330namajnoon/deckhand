@@ -21,6 +21,7 @@ const createBranchWithCommit = require("./createBranchWithCommit");
 const duplicateTestEnvFolder = require("./duplicateTestEnvFolder");
 const enableMessenger = require("./enableMessenger");
 const createPipeline = require("./createPipeline");
+const retryPipeline = require("./retryPipeline");
 const waitForStage = require("./waitForStage");
 const redeployEntorno = require("./redeployEntorno");
 const deleteBranch = require("./deleteBranch");
@@ -58,6 +59,7 @@ module.exports = {
   createBranch,
   createBranchWithCommit,
   createPipeline,
+  retryPipeline,
   duplicateTestEnvFolder,
   enableMessenger,
   waitForStage,
