@@ -10,6 +10,7 @@ const listActiveDeploys = require("./listActiveDeploys");
 const listPipelines = require("./listPipelines");
 const getPipelineJobs = require("./getPipelineJobs");
 const retryPipeline = require("./retryPipeline");
+const runPipeline = require("./runPipeline");
 const getDeploy = require("./getDeploy");
 const deleteDeploy = require("./deleteDeploy");
 const openVscode = require("./openVscode");
@@ -29,6 +30,7 @@ module.exports = [
 	listPipelines,
 	getPipelineJobs,
 	retryPipeline,
+	runPipeline,
 	getDeploy,
 	deleteDeploy,
 	openVscode,
