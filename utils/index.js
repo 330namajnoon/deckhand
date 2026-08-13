@@ -13,6 +13,7 @@ const logError = require("./logError");
 const listBranches = require("./listBranches");
 const listRepositoryTree = require("./listRepositoryTree");
 const getRepositoryFile = require("./getRepositoryFile");
+const searchRepository = require("./searchRepository");
 const listPipelines = require("./listPipelines");
 const listPipelineStages = require("./listPipelineStages");
 const getJobLog = require("./getJobLog");
@@ -53,6 +54,7 @@ module.exports = {
   listBranches,
   listRepositoryTree,
   getRepositoryFile,
+  searchRepository,
   listPipelines,
   listPipelineStages,
   getJobLog,

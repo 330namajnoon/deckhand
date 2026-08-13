@@ -11,5 +11,5 @@ module.exports = {
 		ref: z.string().describe("Rama, tag o commit"),
 		path: z.string().describe("Ruta del archivo dentro del repo"),
 	},
-	handler: async ({ repositoryId, ref, path }) => textResult(await getRepositoryFile(repositoryId, ref, path)),
+	handler: async ({ repositoryId, ref, path }) => textResult((await getRepositoryFile(repositoryId, ref, path)).content),
 };
