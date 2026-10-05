@@ -22,7 +22,7 @@ process.on('uncaughtException', (error) => {
 });
 
 const port = process.env.PORT || 4000;
-const server = new Server(port, "./", [bodyParser.json()], [router], []);
+const server = new Server(port, path.join(__dirname, "public", "dist"), [bodyParser.json()], [router], []);
 
 // Sirve el build del front (public/dist) en /dist, con fallback a index.html
 // para que las rutas de react-router funcionen al recargar la página.

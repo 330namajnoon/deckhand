@@ -17,7 +17,7 @@
     "jsonwebtoken": "^9.0.3",
     "jwks-rsa": "^4.1.0",
     "mariadb": "^3.5.3",
-    "sm-express-server": "^1.0.6",
+    "sm-express-server": "github:330namajnoon/express-server#main",
     "zod": "^4.4.3"
   },
   "devDependencies": {
