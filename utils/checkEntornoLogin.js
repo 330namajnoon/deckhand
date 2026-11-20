@@ -1,6 +1,6 @@
 const { Client } = require("ssh2");
 
-// expect puede acabar bien aunque el servidor rechace la contraseña nueva: esta es la única prueba fiable.
+// Login sin TTY: la única prueba fiable de que el cambio de contraseña forzado se ha hecho.
 const checkEntornoLogin = ({ servidorSsh, puertoSsh, usuarioSsh }, password) =>
 	new Promise((resolve) => {
 		const client = new Client();
@@ -22,11 +22,13 @@ const checkEntornoLogin = ({ servidorSsh, puertoSsh, usuarioSsh }, password) =>
 				});
 			})
 			.on("error", (error) => done({ ok: false, reason: error.message }))
+			.on("keyboard-interactive", (_name, _instructions, _lang, prompts, answer) => answer(prompts.map(() => password)))
 			.connect({
 				host: servidorSsh,
 				port: Number(puertoSsh),
 				username: usuarioSsh || "root",
 				password,
+				tryKeyboard: true,
 				readyTimeout: 15 * 1000,
 				hostVerifier: () => true,
 			});

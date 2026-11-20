@@ -36,7 +36,7 @@ const parseEntornoLog = require("./parseEntornoLog");
 const installEntorno = require("./installEntorno");
 const loginEntorno = require("./loginEntorno");
 const openInBrowser = require("./openInBrowser");
-const runExpect = require("./runExpect");
+const changeEntornoPassword = require("./changeEntornoPassword");
 const openRemoteVscode = require("./openRemoteVscode");
 const readSkillFile = require("./readSkillFile");
 const removeDeploy = require("./removeDeploy");
@@ -83,7 +83,7 @@ module.exports = {
   installEntorno,
   loginEntorno,
   openInBrowser,
-  runExpect,
+  changeEntornoPassword,
   openRemoteVscode,
   readSkillFile,
   removeDeploy,

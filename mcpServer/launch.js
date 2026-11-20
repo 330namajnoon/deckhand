@@ -45,20 +45,33 @@ const candidates = () => {
 	}
 
 	const home = os.homedir();
+	const isWindows = process.platform === "win32";
+	// En Windows el ejecutable va en la raíz de cada versión, no en bin/.
+	const bin = isWindows ? "" : "bin";
+	const localAppData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+	const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
+	const xdgData = process.env.XDG_DATA_HOME || path.join(home, ".local", "share");
 	const versionDirs = [
 		[path.join(process.env.NVM_DIR || path.join(home, ".nvm"), "versions", "node"), "bin"],
-		[path.join(home, ".volta", "tools", "image", "node"), "bin"],
+		[process.env.NVM_HOME || (isWindows ? path.join(appData, "nvm") : ""), ""],
+		[path.join(process.env.VOLTA_HOME || (isWindows ? path.join(localAppData, "Volta") : path.join(home, ".volta")), "tools", "image", "node"), bin],
+		[process.env.FNM_DIR ? path.join(process.env.FNM_DIR, "node-versions") : "", path.join("installation", bin)],
 		[path.join(home, "Library", "Application Support", "fnm", "node-versions"), path.join("installation", "bin")],
-		[path.join(home, ".local", "share", "fnm", "node-versions"), path.join("installation", "bin")],
-		[path.join(home, ".asdf", "installs", "nodejs"), "bin"],
-		[process.env.NVM_HOME || "", ""],
+		[path.join(xdgData, "fnm", "node-versions"), path.join("installation", "bin")],
+		[path.join(home, ".fnm", "node-versions"), path.join("installation", "bin")],
+		[path.join(appData, "fnm", "node-versions"), path.join("installation", "")],
+		[path.join(process.env.ASDF_DATA_DIR || path.join(home, ".asdf"), "installs", "nodejs"), "bin"],
 	];
 	for (const [root, binDir] of versionDirs) {
 		if (!root) continue;
 		for (const version of listDir(root)) found.push(path.join(root, version, binDir, nodeBinary));
 	}
 
-	found.push("/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node");
+	if (isWindows) {
+		found.push(path.join(process.env.ProgramFiles || "C:\\Program Files", "nodejs", nodeBinary));
+	} else {
+		found.push("/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node");
+	}
 	return [...new Set(found)].filter((candidate) => fs.existsSync(candidate));
 };
 
@@ -83,7 +96,7 @@ const start = () => {
 	if (!node) {
 		process.stderr.write(
 			`deckhand necesita Node >= ${MIN_VERSION.join(".")} (usa node:sqlite) y Claude Code lo ha arrancado con ${process.version}. ` +
-				"No se ha encontrado ninguno válido en el PATH, nvm, volta, fnm, asdf ni Homebrew: instala uno o indica su ruta en la variable DECKHAND_NODE.\n",
+				"No se ha encontrado ninguno válido en el PATH, nvm, Volta, fnm, asdf ni en las rutas de instalación habituales: instala uno o indica su ruta en la variable DECKHAND_NODE.\n",
 		);
 		process.exit(1);
 	}

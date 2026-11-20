@@ -56616,11 +56616,12 @@ var require_checkEntornoLogin = __commonJS({
             () => done(output.includes("CAMBIO-OK") ? { ok: true } : { ok: false, reason: output.trim() || "sin respuesta" })
           );
         });
-      }).on("error", (error) => done({ ok: false, reason: error.message })).connect({
+      }).on("error", (error) => done({ ok: false, reason: error.message })).on("keyboard-interactive", (_name, _instructions, _lang, prompts, answer) => answer(prompts.map(() => password))).connect({
         host: servidorSsh,
         port: Number(puertoSsh),
         username: usuarioSsh || "root",
         password,
+        tryKeyboard: true,
         readyTimeout: 15 * 1e3,
         hostVerifier: () => true
       });
@@ -77214,34 +77215,66 @@ var require_createEntorno = __commonJS({
   }
 });
 
-// utils/runExpect.js
-var require_runExpect = __commonJS({
-  "utils/runExpect.js"(exports2, module2) {
-    var { spawn } = require("child_process");
-    function runExpect(script, { env } = {}) {
-      return new Promise((resolve, reject) => {
-        const child = spawn("expect", ["-c", script], {
-          stdio: ["ignore", "pipe", "pipe"],
-          env: env ? { ...process.env, ...env } : process.env
+// utils/changeEntornoPassword.js
+var require_changeEntornoPassword = __commonJS({
+  "utils/changeEntornoPassword.js"(exports2, module2) {
+    var { Client } = require_lib2();
+    var TIMEOUT_MS = 60 * 1e3;
+    var answerFor = (text) => {
+      if (/BAD PASSWORD/i.test(text)) return "bad";
+      if (/retype new.*password:\s*$/i.test(text)) return "new";
+      if (/new.*password:\s*$/i.test(text)) return "new";
+      if (/current.*password:\s*$/i.test(text)) return "old";
+      if (/[$#] $/.test(text)) return "exit";
+      return null;
+    };
+    var changePasswordError = (message, code) => Object.assign(new Error(message), { code });
+    var changeEntornoPassword = ({ servidorSsh, puertoSsh, usuarioSsh }, oldPassword, newPassword) => new Promise((resolve, reject) => {
+      const client = new Client();
+      let buffer = "";
+      let settled = false;
+      const finish = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        client.end();
+        if (error) reject(error);
+        else resolve();
+      };
+      const timer = setTimeout(
+        () => finish(changePasswordError("El login SSH se ha quedado atascado en el cambio de contrase\xF1a", "STUCK")),
+        TIMEOUT_MS
+      );
+      client.on("ready", () => {
+        client.shell({ term: "dumb", cols: 200, rows: 50 }, (error, stream) => {
+          if (error) return finish(error);
+          const onData = (chunk) => {
+            buffer += chunk.toString();
+            const answer = answerFor(buffer.slice(-300));
+            if (!answer) return;
+            buffer = "";
+            if (answer === "bad") return finish(changePasswordError("El entorno rechaza la contrase\xF1a nueva", "BAD_PASSWORD"));
+            if (answer === "exit") return stream.write("exit\n");
+            stream.write(`${answer === "new" ? newPassword : oldPassword}
+`);
+          };
+          stream.on("data", onData);
+          stream.stderr.on("data", onData);
+          stream.on("close", () => finish());
         });
-        child.on("error", (error) => {
-          if (error.code === "ENOENT") {
-            reject(new Error("Falta el binario `expect` en la m\xE1quina donde corre deckhand (inst\xE1lalo con el gestor de paquetes del sistema)", { cause: error }));
-            return;
-          }
-          reject(error);
-        });
-        child.stdout.pipe(process.stdout);
-        child.stderr.pipe(process.stderr);
-        child.on("close", (code) => {
-          if (code === 0) return resolve();
-          const error = new Error(`expect ha terminado con c\xF3digo ${code}`);
-          error.exitCode = code;
-          reject(error);
-        });
+      }).on("keyboard-interactive", (_name, _instructions, _lang, prompts, answer) => {
+        answer(prompts.map(({ prompt }) => answerFor(prompt) === "new" ? newPassword : oldPassword));
+      }).on("change password", (_prompt, done) => done(newPassword)).on("error", finish).connect({
+        host: servidorSsh,
+        port: Number(puertoSsh),
+        username: usuarioSsh || "root",
+        password: oldPassword,
+        tryKeyboard: true,
+        readyTimeout: 15 * 1e3,
+        hostVerifier: () => true
       });
-    }
-    module2.exports = runExpect;
+    });
+    module2.exports = changeEntornoPassword;
   }
 });
 
@@ -77251,12 +77284,10 @@ var require_loginEntorno = __commonJS({
     var { execFile } = require("child_process");
     var dns = require("dns/promises");
     var { promisify } = require("util");
-    var runExpect = require_runExpect();
+    var changeEntornoPassword = require_changeEntornoPassword();
     var getEntornoPassword = require_getEntornoPassword();
     var checkEntornoLogin = require_checkEntornoLogin();
     var execFileAsync = promisify(execFile);
-    var EXIT_STUCK = 4;
-    var EXIT_BAD_PASSWORD = 6;
     var clearKnownHosts = async (host, port) => {
       const hosts = [host];
       try {
@@ -77269,41 +77300,16 @@ var require_loginEntorno = __commonJS({
         });
       }
     };
-    var LOGIN_SCRIPT = `
-  set timeout 60
-  spawn ssh $env(DECKHAND_SSH_TARGET) -p $env(DECKHAND_SSH_PORT)
-  expect {
-    -re "(yes/no|fingerprint)" { send "yes\\r"; exp_continue }
-    -re "(Current|current).*password:" { send -- "$env(DECKHAND_OLD_PASSWORD)\\r"; exp_continue }
-    "BAD PASSWORD" { puts "\\nERROR: el servidor rechaza la contrase\xF1a nueva (pam_pwquality)"; exit ${EXIT_BAD_PASSWORD} }
-    -re "(Retype|retype) new password:" { send -- "$env(DECKHAND_NEW_PASSWORD)\\r"; exp_continue }
-    -re "(New|new) password:" { send -- "$env(DECKHAND_NEW_PASSWORD)\\r"; exp_continue }
-    "'s password:" { send -- "$env(DECKHAND_OLD_PASSWORD)\\r"; exp_continue }
-    -re "(\\\\$|#) $" { send "exit\\r"; exp_continue }
-    timeout { puts "\\nERROR: atascado en el cambio de contrase\xF1a"; exit ${EXIT_STUCK} }
-    eof { exit 0 }
-  }
-`;
     async function loginEntorno(entorno) {
-      const { usuarioSsh, contrasenaSsh, servidorSsh, puertoSsh } = entorno;
+      const { contrasenaSsh, servidorSsh, puertoSsh } = entorno;
       const { key, password } = getEntornoPassword(entorno);
       await clearKnownHosts(servidorSsh, puertoSsh);
       if ((await checkEntornoLogin(entorno, password)).ok) return { success: true };
       try {
-        await runExpect(LOGIN_SCRIPT, {
-          env: {
-            DECKHAND_SSH_TARGET: `${usuarioSsh || "root"}@${servidorSsh}`,
-            DECKHAND_SSH_PORT: String(puertoSsh),
-            DECKHAND_OLD_PASSWORD: contrasenaSsh ?? "",
-            DECKHAND_NEW_PASSWORD: password
-          }
-        });
+        await changeEntornoPassword(entorno, contrasenaSsh ?? "", password);
       } catch (error) {
-        if (error.exitCode === EXIT_BAD_PASSWORD) {
+        if (error.code === "BAD_PASSWORD") {
           throw new Error(`El entorno rechaza la contrase\xF1a de ${key} por su pol\xEDtica de contrase\xF1as: c\xE1mbiala en /deckhand:settings`);
-        }
-        if (error.exitCode === EXIT_STUCK) {
-          throw new Error("El login SSH se ha quedado atascado en el cambio de contrase\xF1a");
         }
         throw error;
       }
@@ -77366,21 +77372,15 @@ var require_openInBrowser = __commonJS({
 // utils/openRemoteVscode.js
 var require_openRemoteVscode = __commonJS({
   "utils/openRemoteVscode.js"(exports2, module2) {
-    var { spawn } = require("child_process");
-    function openRemoteVscode(user, hostName, port, route = "/var/www/") {
-      const host = `${hostName}:${port}`;
-      const uri = `vscode-remote://ssh-remote+${user}@${host}${route}`;
+    var openInBrowser = require_openInBrowser();
+    async function openRemoteVscode(user, hostName, port, route = "/var/www/") {
+      const folder = route.startsWith("/") ? route : `/${route}`;
+      const uri = `vscode://vscode-remote/ssh-remote+${user}@${hostName}:${port}${folder}`;
       console.log(`Abriendo VS Code en ${uri}...`);
-      return new Promise((resolve, reject) => {
-        const child = spawn("code", ["--folder-uri", uri], { stdio: ["ignore", "pipe", "pipe"] });
-        child.stdout.pipe(process.stdout);
-        child.stderr.pipe(process.stderr);
-        child.on("error", reject);
-        child.on("close", (code) => {
-          if (code === 0) resolve({ success: true, uri });
-          else reject(new Error(`code ha terminado con c\xF3digo ${code}`));
-        });
-      });
+      if (!await openInBrowser(uri)) {
+        throw new Error("No se ha podido abrir VS Code: comprueba que est\xE1 instalado con la extensi\xF3n Remote-SSH");
+      }
+      return { success: true, uri };
     }
     module2.exports = openRemoteVscode;
   }
@@ -77476,7 +77476,7 @@ var require_utils7 = __commonJS({
     var installEntorno = require_installEntorno();
     var loginEntorno = require_loginEntorno();
     var openInBrowser = require_openInBrowser();
-    var runExpect = require_runExpect();
+    var changeEntornoPassword = require_changeEntornoPassword();
     var openRemoteVscode = require_openRemoteVscode();
     var readSkillFile = require_readSkillFile();
     var removeDeploy = require_removeDeploy();
@@ -77522,7 +77522,7 @@ var require_utils7 = __commonJS({
       installEntorno,
       loginEntorno,
       openInBrowser,
-      runExpect,
+      changeEntornoPassword,
       openRemoteVscode,
       readSkillFile,
       removeDeploy,
@@ -78089,7 +78089,7 @@ var require_openVscode2 = __commonJS({
     module2.exports = {
       name: "open_vscode",
       title: "Abrir VS Code remoto",
-      description: 'Abre en VS Code (Remote-SSH) el entorno de un deploy con status "listo". Se abre en la m\xE1quina donde corre deckhand (con el plugin, la del propio usuario); necesita el comando `code` en el PATH.',
+      description: 'Abre en VS Code (Remote-SSH) el entorno de un deploy con status "listo". Se abre en la m\xE1quina donde corre deckhand (con el plugin, la del propio usuario) a trav\xE9s de la URL vscode://; necesita VS Code con la extensi\xF3n Remote-SSH. Antes resuelve el cambio de contrase\xF1a forzado del entorno si hace falta.',
       inputSchema: {
         deployId: z.string()
       },
@@ -78847,11 +78847,12 @@ var require_getConnection = __commonJS({
     var isAuthError = (error) => error?.level === "client-authentication";
     var connect = (deploy, password) => new Promise((resolve, reject) => {
       const client = new Client();
-      client.on("ready", () => resolve(client)).on("error", reject).connect({
+      client.on("ready", () => resolve(client)).on("error", reject).on("keyboard-interactive", (_name, _instructions, _lang, prompts, answer) => answer(prompts.map(() => password))).connect({
         host: deploy.servidorSsh,
         port: Number(deploy.puertoSsh),
         username: deploy.usuarioSsh || "root",
         password,
+        tryKeyboard: true,
         readyTimeout: CONNECT_TIMEOUT_MS,
         keepaliveInterval: 15 * 1e3,
         // Cada redeploy cambia la clave de host: no se verifica.

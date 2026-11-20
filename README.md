@@ -26,8 +26,9 @@ URL, y se cierra tras 30 minutos sin uso.
 
 No hace falta `yarn install` ni base de datos: el plugin arranca
 `bundle/server.js` con Node 22.13+ y guarda los deploys en
-`~/.deckhand/deckhand.db`. En la máquina tienen que estar `expect`, `ssh` y,
-para abrir entornos en VS Code, el comando `code`.
+`~/.deckhand/deckhand.db`. Funciona en Windows, macOS y Linux sin más
+binarios: el SSH va por `ssh2`. Para abrir entornos en VS Code hace falta
+VS Code con la extensión Remote-SSH.
 
 ### Trabajar dentro de los entornos
 
@@ -64,7 +65,6 @@ yarn build:plugin
 
 - Node.js 22.13+ (usa el SQLite integrado, `node:sqlite`; no hace falta instalar ninguna base de datos)
 - Yarn 4 (`nodeLinker: node-modules`, no PnP)
-- `expect` y `ssh` disponibles en el sistema (automatización SSH de los entornos)
 - Una instancia de GitLab autoalojada y un Personal Access Token con scope `api`
 
 ## Instalación

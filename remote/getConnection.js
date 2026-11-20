@@ -19,11 +19,13 @@ const connect = (deploy, password) =>
 		client
 			.on("ready", () => resolve(client))
 			.on("error", reject)
+			.on("keyboard-interactive", (_name, _instructions, _lang, prompts, answer) => answer(prompts.map(() => password)))
 			.connect({
 				host: deploy.servidorSsh,
 				port: Number(deploy.puertoSsh),
 				username: deploy.usuarioSsh || "root",
 				password,
+				tryKeyboard: true,
 				readyTimeout: CONNECT_TIMEOUT_MS,
 				keepaliveInterval: 15 * 1000,
 				// Cada redeploy cambia la clave de host: no se verifica.
