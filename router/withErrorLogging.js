@@ -1,8 +1,6 @@
 const { logError } = require("../utils");
 
-// Envuelve un controller para que ningún error asíncrono quede sin gestionar
-// (Express 4 no captura promesas rechazadas y la petición se quedaría colgada):
-// se registra en database/errors.log y se responde con un 500 coherente.
+// Express 4 no captura promesas rechazadas: sin esto la petición se quedaría colgada.
 const withErrorLogging = (controller) => async (req, res) => {
 	try {
 		await controller(req, res);

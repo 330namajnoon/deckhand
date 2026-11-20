@@ -17,6 +17,14 @@ const deleteDeploy = require("./deleteDeploy");
 const openVscode = require("./openVscode");
 const redeployEntorno = require("./redeployEntorno");
 const createDeploy = require("./createDeploy");
+const openSettings = require("./openSettings");
+const remoteExec = require("./remoteExec");
+const remoteReadFile = require("./remoteReadFile");
+const remoteWriteFile = require("./remoteWriteFile");
+const remoteEditFile = require("./remoteEditFile");
+const remoteListDir = require("./remoteListDir");
+const remoteDbQuery = require("./remoteDbQuery");
+const listRemoteActions = require("./listRemoteActions");
 
 module.exports = [
 	listRepositories,
@@ -38,4 +46,12 @@ module.exports = [
 	openVscode,
 	redeployEntorno,
 	createDeploy,
+	openSettings,
+	remoteExec,
+	remoteReadFile,
+	remoteWriteFile,
+	remoteEditFile,
+	remoteListDir,
+	remoteDbQuery,
+	listRemoteActions,
 ];

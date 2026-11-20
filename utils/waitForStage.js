@@ -1,23 +1,9 @@
 const getJobLog = require("./getJobLog");
 const listPipelineStages = require("./listPipelineStages");
 
-// Cuántos caracteres finales del log del job fallido se incluyen en el
-// mensaje de error: el log completo puede ser enorme (y el error se guarda
-// en una columna TEXT), pero el motivo del fallo casi siempre está al final.
+// El motivo del fallo suele estar al final del log.
 const FAILED_JOB_LOG_TAIL_CHARS = 8000;
 
-/**
- * Espera a que un stage de un pipeline termine en success, mostrando un
- * spinner con el estado y el tiempo transcurrido. Lanza un error si el
- * stage termina en failed o canceled.
- *
- * @param {number|string} projectId - Id del proyecto.
- * @param {number} pipelineId - Id del pipeline.
- * @param {string} stageName - Nombre del stage a esperar, ej. "deploy_workers".
- * @param {string} [pipelineWebUrl] - Url del pipeline (la que devuelve
- *     listPipelines), solo para incluirla en el mensaje si el stage falla.
- * @returns {Promise<{name: string, status: string, jobs: Array}>} El stage terminado en success.
- */
 async function waitForStage(projectId, pipelineId, stageName, pipelineWebUrl) {
   const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   const startTime = Date.now();
@@ -34,10 +20,7 @@ async function waitForStage(projectId, pipelineId, stageName, pipelineWebUrl) {
     );
   }, 100);
 
-  // Un fallo de red/API puntual al consultar GitLab no significa que el
-  // pipeline haya fallado: se tolera un número de fallos consecutivos (el
-  // pipeline sigue corriendo en GitLab mientras tanto) y solo se lanza si la
-  // API no responde durante muchos intentos seguidos.
+  // Los fallos puntuales de la API se toleran: el pipeline sigue corriendo en GitLab.
   const MAX_CONSECUTIVE_ERRORS = 6;
   let consecutiveErrors = 0;
 
@@ -68,9 +51,6 @@ async function waitForStage(projectId, pipelineId, stageName, pipelineWebUrl) {
         const stage = stages.find(s => ['failed', 'canceled'].includes(s.status));
         const failedJob = stage.jobs.find(j => ['failed', 'canceled'].includes(j.status)) ?? stage.jobs[0];
 
-        // El log del job fallido es lo que le permite a quien lea el error (una
-        // IA vía MCP, o quien mire deploys.error) diagnosticar la causa real sin
-        // tener que entrar a GitLab a mano.
         let logExcerpt = '';
         try {
           const log = await getJobLog(projectId, failedJob.id);
@@ -91,7 +71,7 @@ async function waitForStage(projectId, pipelineId, stageName, pipelineWebUrl) {
     }
   } finally {
     clearInterval(spinner);
-    process.stdout.write('\r\x1B[K'); // limpiar la línea del spinner
+    process.stdout.write('\r\x1B[K');
   }
 }
 

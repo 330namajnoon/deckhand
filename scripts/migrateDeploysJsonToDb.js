@@ -1,11 +1,9 @@
-// Migra el histórico de database/deploys.json a la tabla `deploys` de
-// MariaDB (Prisma). Idempotente: usa upsert, así que se puede reejecutar sin
-// duplicar filas. Uso: yarn node scripts/migrateDeploysJsonToDb.js
+// Idempotente: si el id ya existe actualiza la fila. Uso: yarn node scripts/migrateDeploysJsonToDb.js
 require("dotenv").config();
 
 const fs = require("fs/promises");
 const path = require("path");
-const prisma = require("../database/client");
+const { getDeploy, saveDeploy, updateDeploy } = require("../utils");
 
 const DEPLOYS_FILE = path.join(__dirname, "..", "database", "deploys.json");
 
@@ -18,7 +16,7 @@ const toData = (deploy) => ({
 	entornoUrl: deploy.entornoUrl ?? null,
 	messenger: deploy.messenger ?? null,
 	status: deploy.status,
-	createdAt: new Date(deploy.createdAt),
+	createdAt: deploy.createdAt,
 	fechaCaducidad: deploy.fechaCaducidad ?? null,
 	usuarioSsh: deploy.usuarioSsh ?? null,
 	contrasenaSsh: deploy.contrasenaSsh ?? null,
@@ -42,7 +40,8 @@ async function main() {
 	for (const deploy of deploys) {
 		const data = toData(deploy);
 		try {
-			await prisma.deploy.upsert({ where: { id: deploy.id }, create: { id: deploy.id, ...data }, update: data });
+			if (await getDeploy(deploy.id)) await updateDeploy(deploy.id, data);
+			else await saveDeploy({ id: deploy.id, ...data });
 			ok++;
 		} catch (error) {
 			failed++;
@@ -51,7 +50,6 @@ async function main() {
 	}
 
 	console.log(`✅ ${ok} deploys migrados${failed > 0 ? `, ❌ ${failed} fallidos` : ""} (de ${deploys.length} en total)`);
-	await prisma.$disconnect();
 }
 
 main();

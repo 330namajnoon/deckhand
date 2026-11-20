@@ -5,22 +5,24 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "postinstall": "prisma generate"
+    "build:plugin": "node scripts/buildPlugin.js",
+    "mcp": "node mcpServer/stdio.js"
   },
   "dependencies": {
     "@gitbeaker/rest": "^43.8.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@prisma/adapter-mariadb": "^7.9.1",
-    "@prisma/client": "^7.9.1",
     "adm-zip": "^0.6.0",
     "dotenv": "^17.4.2",
     "jsonwebtoken": "^9.0.3",
     "jwks-rsa": "^4.1.0",
-    "mariadb": "^3.5.3",
     "sm-express-server": "github:330namajnoon/express-server#main",
+    "ssh2": "^1.17.0",
     "zod": "^4.4.3"
   },
+  "engines": {
+    "node": ">=22.13"
+  },
   "devDependencies": {
-    "prisma": "^7.9.1"
+    "esbuild": "0.28.2"
   }
 }

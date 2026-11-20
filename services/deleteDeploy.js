@@ -3,9 +3,7 @@ const { deleteBranch, findRepository, getDeploy, HttpError, logError, removeDepl
 const isBranchNotFound = (error) =>
 	/not found|404/i.test(error?.cause?.description ?? error?.message ?? "");
 
-// Borra un deploy: primero elimina su rama en GitLab (si existe) y después
-// lo quita del listado. Si la rama no se puede borrar por otro motivo (p. ej.
-// está protegida), el deploy no se elimina del listado.
+// Si la rama no se puede borrar (p. ej. protegida), el deploy no se elimina.
 const deleteDeploy = async (id) => {
 	const deploy = await getDeploy(id);
 
@@ -13,8 +11,7 @@ const deleteDeploy = async (id) => {
 		throw new HttpError(`No existe ningún deploy con id ${id}`, 404);
 	}
 
-	// La rama del entorno se llama igual que el entorno. En deploys que
-	// fallaron antes de crear el entorno se reconstruye con la misma regla.
+	// En deploys que fallaron antes de crear el entorno, el nombre de la rama se reconstruye con la misma regla.
 	const normalize = (value) => value.toLowerCase().replace(/[-_]/g, "");
 	const branchName = deploy.entornoName ?? `${deploy.type ?? "entorno"}${normalize(deploy.branchName)}${normalize(deploy.projectName)}`;
 

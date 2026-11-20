@@ -1,17 +1,22 @@
-const prisma = require("../database/client");
+const db = require("../database/client");
+const { toRow } = require("../database/deployRow");
+const getDeploy = require("./getDeploy");
 
-// Los llamantes pasan claves a `undefined` para limpiar un campo (p. ej.
-// borrar el error al reintentar un redeploy); Prisma ignora `undefined` en
-// `data`, así que aquí se traduce a `null` para conservar ese comportamiento.
+// Una clave a `undefined` limpia el campo (se escribe como null).
 const updateDeploy = async (id, changes) => {
-	const data = Object.fromEntries(Object.entries(changes).map(([key, value]) => [key, value === undefined ? null : value]));
+	const { id: _ignored, ...row } = toRow(changes);
+	const columns = Object.keys(row);
 
-	try {
-		return await prisma.deploy.update({ where: { id }, data });
-	} catch (error) {
-		if (error.code === "P2025") throw new Error(`No existe ningún deploy con id ${id}`);
-		throw error;
+	if (columns.length > 0) {
+		const { changes: updated } = db
+			.prepare(`UPDATE deploys SET ${columns.map((c) => `${c} = :${c}`).join(", ")} WHERE id = :id`)
+			.run({ ...row, id });
+		if (updated === 0) throw new Error(`No existe ningún deploy con id ${id}`);
 	}
+
+	const deploy = await getDeploy(id);
+	if (!deploy) throw new Error(`No existe ningún deploy con id ${id}`);
+	return deploy;
 };
 
 module.exports = updateDeploy;

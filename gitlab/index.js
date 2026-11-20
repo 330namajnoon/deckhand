@@ -1,10 +1,24 @@
 const { Gitlab } = require('@gitbeaker/rest');
+const { getSetting } = require('../settings');
 
-// GITLAB_HOST y GITLAB_TOKEN se definen en ecosystem.config.js (pm2) o en el
-// entorno del shell. Ver .env.example.
-const gitlabApi = new Gitlab({
-  host: process.env.GITLAB_HOST,
-  token: process.env.GITLAB_TOKEN,
-});
+// Se recrea si cambian host o token, así que los cambios del panel se aplican sin reiniciar.
+let client;
+let clientKey;
 
-module.exports =  gitlabApi;
+const getClient = () => {
+  const host = getSetting('GITLAB_HOST');
+  const token = getSetting('GITLAB_TOKEN');
+
+  if (!host || !token) {
+    throw new Error('Faltan GITLAB_HOST o GITLAB_TOKEN: configúralos en el panel de deckhand (/deckhand:settings)');
+  }
+
+  const key = `${host}\n${token}`;
+  if (!client || key !== clientKey) {
+    client = new Gitlab({ host, token });
+    clientKey = key;
+  }
+  return client;
+};
+
+module.exports = new Proxy({}, { get: (_target, prop) => getClient()[prop] });

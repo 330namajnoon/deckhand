@@ -11,18 +11,13 @@ const {
 	updateDeploy,
 } = require("../utils");
 
-// Mensaje de un error con la descripción de la causa (gitbeaker la expone en
-// error.cause.description) si la trae, si no el mensaje a secas.
 const describeError = (error) => error?.cause?.description ?? error.message ?? "Error desconocido";
 
 const runDeploy = async (id, branchName, projectId, ref, type, entornoUrl, messenger, editActions, remoteInstall) => {
 	try {
 		const deployData = await createEntorno(branchName, projectId, ref, type, entornoUrl, messenger, editActions);
 
-		// Los entornos de tipo test solo se despliegan: ni instalación ni VS Code.
-		// Si el caller pide remoteInstall: false (el MCP), tampoco: ese login SSH,
-		// la copia de la clave y la apertura de VS Code los hará el propio caller
-		// en su máquina, no el servidor de deckhand.
+		// Los entornos test y los de remoteInstall: false (MCP) no se instalan aquí: lo hace el caller en su máquina.
 		if (type === "test" || !remoteInstall) {
 			await updateDeploy(id, { ...deployData, status: "listo" });
 			return;
@@ -43,9 +38,7 @@ const runDeploy = async (id, branchName, projectId, ref, type, entornoUrl, messe
 	}
 };
 
-// Crea un deploy nuevo. Si ya hay uno activo para el mismo repo/rama/tipo,
-// no se lanza uno nuevo: se devuelve el existente (isNew: false) para que el
-// caller (controller o tool MCP) pueda responder 200 en vez de 202.
+// Si ya hay un deploy activo para el mismo repo/rama/tipo, se devuelve ese (isNew: false).
 const createDeploy = async ({
 	branchName,
 	projectId,
@@ -55,10 +48,6 @@ const createDeploy = async ({
 	entornoUrl,
 	messenger = false,
 	editActions = [],
-	// A true (REST) el propio servidor de deckhand hace el login SSH inicial,
-	// copia la clave SSH y abre VS Code. A false (MCP) esos pasos se saltan:
-	// el deploy se marca "listo" en cuanto el entorno existe, con los datos de
-	// conexión, para que el caller los haga en su propia máquina.
 	remoteInstall = true,
 }) => {
 	if (!["entorno", "test"].includes(type)) {
@@ -69,10 +58,7 @@ const createDeploy = async ({
 		throw new HttpError(`Falta el id del repositorio a desplegar`, 400);
 	}
 
-	// Cambios hechos en el editor de código de la página de deploy: acciones
-	// de commit de GitLab que se aplican en el primer commit de la rama. "move"
-	// son los renombrados/duplicados de carpetas y ficheros: llevan previousPath
-	// y el content es opcional (si no se manda, GitLab conserva el original).
+	// "move" lleva previousPath; sin content, GitLab conserva el original.
 	const invalidAction = editActions.find(
 		(a) =>
 			!["create", "update", "delete", "move"].includes(a?.action) ||
@@ -84,19 +70,12 @@ const createDeploy = async ({
 		throw new HttpError(`Acción de edición inválida: ${JSON.stringify(invalidAction)}`, 400);
 	}
 
-	// La rama del entorno se genera de forma determinista a partir de tarea +
-	// repo + tipo, así que un deploy en curso (ni terminado ni fallido) para la
-	// misma combinación ya está creando/usando esa misma rama: no se lanza un
-	// deploy nuevo, se sigue con el mismo.
 	const activeDeploy = await findActiveDeploy(projectId, branchName, type);
 	if (activeDeploy) {
 		return { deploy: activeDeploy, isNew: false };
 	}
 
-	// projectName es obligatorio en la fila del deploy (columna no nulable); el
-	// caller REST siempre lo manda (ya lo tiene, de la lista de repos elegida en
-	// el front), pero un caller MCP puede no conocerlo y solo tener el id, así
-	// que si no viene se resuelve aquí.
+	// Un caller MCP puede mandar solo el id: projectName se resuelve aquí.
 	const resolvedProjectName = projectName ?? (await findRepository(projectId)).name;
 
 	const deploy = {

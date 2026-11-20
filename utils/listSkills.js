@@ -4,7 +4,6 @@ const readSkillFile = require("./readSkillFile");
 
 const SKILLS_DIR = path.join(__dirname, "..", "skills");
 
-// Lista los skills en skills/ (una carpeta por skill, con SKILL.md dentro), con su name/description.
 const listSkills = () => {
 	if (!fs.existsSync(SKILLS_DIR)) return [];
 

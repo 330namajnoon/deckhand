@@ -1,20 +1,3 @@
-/**
- * Extrae los datos del entorno del log del job deploy_workers (la sección
- * de "Clave: valor" que va entre las líneas de asteriscos).
- *
- * @param {string} log - Texto completo del log del job.
- * @returns {{
- *   fechaCaducidad: string,
- *   usuarioSsh: string,
- *   contrasenaSsh: string,
- *   servidorSsh: string,
- *   puertoSsh: string,
- *   cadenaConexionSsh: string,
- *   rutaRaiz: string,
- *   url: string,
- *   ideKeyXdebug: string
- * }} Datos del entorno; los campos que no aparezcan en el log quedan undefined.
- */
 function parseEntornoLog(log) {
   const getValue = (label) => {
     const regex = new RegExp(`${label}:\\s*(.+)`);

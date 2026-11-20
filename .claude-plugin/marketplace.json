@@ -1,0 +1,14 @@
+{
+  "name": "deckhand",
+  "description": "Marketplace del plugin deckhand: entornos de tarea en GitLab desde Claude Code.",
+  "owner": {
+    "name": "Sina Majnoon"
+  },
+  "plugins": [
+    {
+      "name": "deckhand",
+      "source": "./",
+      "description": "Entornos de tarea en GitLab desde Claude Code: crear, redesplegar, consultar, abrir en VS Code y borrar."
+    }
+  ]
+}

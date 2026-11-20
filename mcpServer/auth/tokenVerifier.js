@@ -14,11 +14,7 @@ const getSigningKey = (header, callback) => {
 	});
 };
 
-// Verifica el JWT emitido por el auth-server: firma (vía JWKS, o
-// MCP_AUTH_PUBLIC_KEY como clave fija si el auth-server no expone JWKS),
-// issuer, audience y algoritmo permitido. Claims confirmados contra el
-// auth-server real (oidc-provider, ver lib/models/formats/jwt.js): siempre
-// `client_id` (nunca `azp`) y `scope` como string separado por espacios.
+// Claims de oidc-provider: siempre `client_id` (nunca `azp`) y `scope` separado por espacios.
 const verifyAccessToken = (token) =>
 	new Promise((resolve, reject) => {
 		const getKey = process.env.MCP_AUTH_PUBLIC_KEY

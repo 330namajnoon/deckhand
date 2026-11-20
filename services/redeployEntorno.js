@@ -8,18 +8,13 @@ const {
 	updateDeploy,
 } = require("../utils");
 
-// Mensaje de un error con la descripción de la causa (gitbeaker la expone en
-// error.cause.description) si la trae, si no el mensaje a secas.
 const describeError = (error) => error?.cause?.description ?? error.message ?? "Error desconocido";
 
 const runRedeploy = async (id, entornoName, projectId, type, remoteInstall) => {
 	try {
 		const deployData = await redeployEntornoUtil(entornoName, projectId, { deleteFilesBranchEntorno: "1" });
 
-		// Los entornos de tipo test solo se despliegan: ni instalación ni VS Code.
-		// Si el caller pide remoteInstall: false (el MCP), tampoco: ese login SSH,
-		// la copia de la clave y la apertura de VS Code los hará el propio caller
-		// en su máquina, no el servidor de deckhand.
+		// Los entornos test y los de remoteInstall: false (MCP) no se instalan aquí: lo hace el caller en su máquina.
 		if (type === "test" || !remoteInstall) {
 			await updateDeploy(id, { ...deployData, status: "listo" });
 			return;
@@ -57,8 +52,7 @@ const redeployEntorno = async (id, remoteInstall = true) => {
 
 	const updated = await updateDeploy(id, { status: "creando", error: undefined });
 
-	// El id del repo puede venir guardado en el propio deploy (deploys nuevos);
-	// si no, se cae al nombre (deploys antiguos, ambiguo si hay repos duplicados).
+	// Los deploys antiguos no guardan el id del repo: se cae al nombre.
 	const projectId = deploy.project?.id ?? deploy.projectName;
 
 	runRedeploy(id, deploy.entornoName, projectId, deploy.type, remoteInstall);

@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-"deckhand" is a Node.js assistant for automating GitLab workflows (pipelines, branches, environment creation/installation). It has two parts:
+"deckhand" is a Node.js assistant for automating GitLab workflows (pipelines, branches, environment creation/installation). It has these parts:
 
-- **Backend** (repo root): CommonJS Node.js server (`server.js`) built on `sm-express-server`, exposing a REST API that orchestrates the utilities in `utils/` and persists deploys in a MariaDB `deploys` table via Prisma (`prisma/schema.prisma`, `database/client.js`).
-- **Frontend** (`public/`): React 19 + TypeScript + Vite + styled-components SPA (react-router) to launch and monitor deploys. The production build (`public/dist`) is served by the backend under `/dist`.
+- **Backend** (repo root): CommonJS Node.js server (`server.js`) built on `sm-express-server`, exposing a REST API that orchestrates the utilities in `utils/` and persists deploys in a SQLite `deploys` table using Node's built-in `node:sqlite` (`database/client.js`), no external database server.
 - **MCP server** (`mcpServer/`): mounted on the same Express app at `POST /mcp`, exposes the same deploy/repository operations as MCP tools for AI agents, authenticated with a Bearer JWT verified against an external auth-server (see "MCP server" below).
+- **Claude Code plugin** (`.claude-plugin/`): the same MCP tools served over stdio (`mcpServer/stdio.js`, bundled into `bundle/server.js`) so anyone can install deckhand with `/plugin install` — see "Plugin" below. Skills and agents will be added at the plugin root (`skills/`, `agents/`).
 
 ## Package manager
 
-Both root and `public/` use Yarn 4 with `nodeLinker: node-modules` (see `.yarnrc.yml`; not PnP). Install with `yarn install`, add packages with `yarn add <pkg>`. Each part has its own `package.json`/`yarn.lock`.
+Yarn 4 with `nodeLinker: node-modules` (see `.yarnrc.yml`; not PnP). Install with `yarn install`, add packages with `yarn add <pkg>`.
 
 ## Commands
 
@@ -20,64 +20,59 @@ Both root and `public/` use Yarn 4 with `nodeLinker: node-modules` (see `.yarnrc
 # Backend (repo root)
 yarn start                 # node server.js (port 4000, or $PORT)
 
-# Frontend (from public/)
-yarn dev                   # Vite dev server (calls API at http://localhost:4000)
-yarn build                 # tsc -b && vite build → public/dist
-yarn lint                  # eslint .
+# Plugin (repo root)
+yarn build:plugin          # bundle mcpServer/stdio.js → bundle/server.js (commit it after every MCP/utils change)
+yarn mcp                   # run the stdio MCP server from source (reads the root .env)
+claude plugin validate .   # validate plugin.json + marketplace.json
 
 # Quick GitLab connectivity check
 yarn node -e "require('./gitlab/index.js').Users.showCurrentUser().then(u => console.log(u.username))"
-
-# Database (Prisma / MariaDB, repo root)
-yarn prisma generate        # regenerate the client into generated/prisma/ after a schema.prisma change
-yarn prisma migrate dev     # create + apply a migration (needs a DB user that can create a shadow DB — see below)
-yarn prisma migrate deploy  # apply committed prisma/migrations/ as-is, no shadow DB needed (used in prod and by the deckhand DB user)
-yarn prisma studio          # browse the deploys table
 ```
 
-Secrets live in a root `.env` (gitignored; `.env.example` is the template): `GITLAB_HOST`, `GITLAB_TOKEN`, `ENTORNO_NEW_PASSWORD`, `PORT`, `DATABASE_URL`, `MCP_PUBLIC_URL`, and the `MCP_AUTH_*` vars (see "MCP server" below). Both entry points (`server.js`, `main.js`) call `require('dotenv').config()` on their first line — it must run before any local `require`, since `gitlab/index.js` reads the env at import time. Never commit the `.env` or copy its values elsewhere.
+Secrets live in a root `.env` (gitignored; `.env.example` is the template): `GITLAB_HOST`, `GITLAB_TOKEN`, `ENTORNO_NEW_PASSWORD`, `ENTORNO_NEW_PASSWORD_CRM` (optional), `PORT`, `DECKHAND_HOME` (optional), `MCP_PUBLIC_URL`, and the `MCP_AUTH_*` vars (see "MCP server" below). Both entry points (`server.js`, `main.js`) call `require('dotenv').config()` on their first line — it must run before any local `require`, since `gitlab/index.js` reads the env at import time. Never commit the `.env` or copy its values elsewhere.
 
 In production the app runs under pm2 via `ecosystem.config.js` (versioned, no secrets inside — it loads the same `.env` with dotenv and passes it as pm2's `env`). After editing `.env`, apply it with `pm2 reload ecosystem.config.js --update-env`.
 
-## Database (Prisma / MariaDB)
+## Database (SQLite)
 
-MariaDB runs locally on the same host as the backend (systemd service `mariadb`), database `deckhand`, with a dedicated user `deckhand`@`localhost` scoped to `GRANT ALL ON deckhand.*` only (no global/CREATE DATABASE privilege — least privilege, since this MariaDB instance is reachable beyond localhost). `DATABASE_URL` in `.env` holds the full connection string for that user.
+Deploys live in a single SQLite file, `deckhand.db` inside the data dir (`database/dataDir.js`: `DECKHAND_HOME`, default `~/.deckhand`, also home of `errors.log`). It sits outside the repo on purpose so it survives reinstalls/updates when deckhand is distributed as a Claude plugin, and there's no database server or Docker container to run. It uses Node's built-in `node:sqlite` (requires Node 22.13+, see `engines` in `package.json`; Node prints an `ExperimentalWarning` on startup, which is harmless) — no native modules, no ORM, no generated client, no postinstall step.
 
-- `prisma/schema.prisma` — single `Deploy` model (`@@map("deploys")`), mirrors the old `database/deploys.json` record shape 1:1 (including a `project Json?` column caching the GitLab project data `findRepository` returns). Uses the Prisma 7 `prisma-client` generator with `moduleFormat = "cjs"` (this backend is CommonJS) and `output = "../generated/prisma"`.
-- `prisma.config.ts` — Prisma CLI config (schema path, migrations path, `datasource.url` from `DATABASE_URL`); loaded automatically by the `prisma` CLI, not by the app itself.
-- `generated/prisma/` — generated client, gitignored, regenerated by `yarn prisma generate` (also runs automatically via the `postinstall` script after `yarn install`). Import it with an explicit `.ts` extension (`require("../generated/prisma/client.ts")`, as `database/client.js` does) — Node's built-in TypeScript support loads it directly, no build step or `ts-node` needed.
-- `database/client.js` — the singleton `PrismaClient`, built with the `@prisma/adapter-mariadb` driver adapter (required in Prisma 7; there is no built-in connection handling anymore). Import it with `require("../database/client")` and reuse the same instance — never construct a second `PrismaClient`.
-- Because the `deckhand` DB user can't create a shadow database, `yarn prisma migrate dev` fails with P3014. To add a new migration: edit `schema.prisma`, then generate the SQL by diffing against the existing migrations and write it into a new `prisma/migrations/<timestamp>_<name>/migration.sql` by hand, e.g.:
-
-  ```bash
-  yarn prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --script
-  ```
-
-  then apply it with `yarn prisma migrate deploy` (no shadow DB required, safe with the scoped user; this is also what should run in production after pulling migrations).
-- `scripts/migrateDeploysJsonToDb.js` — one-off, idempotent (upsert-based) import of the historical `database/deploys.json` into the `deploys` table; already run once. `database/deploys.json` itself is left in place untouched as a historical/offline backup but is no longer read or written by the app.
+- `database/client.js` — the singleton `DatabaseSync`. The data dir is created by `database/dataDir.js`; enables WAL + `busy_timeout`, and runs `database/migrate.js` on open. Import it with `require("../database/client")` and reuse it — never open a second connection.
+- `database/migrate.js` — ordered list of SQL migrations; `PRAGMA user_version` stores how many have been applied, and the pending ones run in a transaction on every startup. To change the schema, append a new entry — never edit one that has already shipped.
+- `database/deployRow.js` — single `deploys` table mirroring the old `database/deploys.json` record shape 1:1. SQLite has no booleans/dates/JSON, so `toRow` stores `messenger` as 0/1, `createdAt` as an ISO string and `project` (the cached GitLab project data `findRepository` returns) as JSON text, and `fromRow` converts them back. `toRow` drops unknown keys and turns `undefined` into `null`.
+- `remote_actions` (migration 2) — audit log of every `remote_*` tool call, including the ones the policy blocked (`utils/logRemoteAction.js`, `utils/listRemoteActions.js`). No FK to `deploys`, so the log survives deleting the deploy.
+- `utils/*Deploy*.js` keep their async signatures, so services/controllers/MCP tools didn't change.
+- `scripts/migrateDeploysJsonToDb.js` — one-off, idempotent import of a historical `database/deploys.json` into the SQLite table.
 
 ## Project structure
 
 ```
-server.js          — starts sm-express-server on :4000, mounts router and serves public/dist under /dist (with index.html fallback for react-router), mounts the MCP server under /mcp; logs unhandledRejection/uncaughtException via logError
+server.js          — starts sm-express-server on :4000, mounts router, mounts the MCP server under /mcp; logs unhandledRejection/uncaughtException via logError
 router/index.js    — declares the REST routes, delegating to controllers/ (each wrapped with router/withErrorLogging.js: logs the error and responds 500)
 controllers/       — one controller per endpoint, re-exported from controllers/index.js; the 4 that wrap non-trivial deploy operations (deployEntornoController, deleteDeployController, openVscodeController, redeployEntornoController) are thin callers of services/
 services/          — shared business logic for the 4 non-trivial deploy operations (create/delete/redeploy/open-vscode), called by both controllers/ (REST) and mcpServer/tools/ (MCP) so the two surfaces never diverge; re-exported from services/index.js; throw utils/HttpError.js on expected failures (404/409/400/502)
-mcpServer/         — MCP server exposing deckhand's operations as tools for AI agents (see "MCP server" below); named mcpServer/ rather than mcp/ so its directory name doesn't collide with the /mcp route matched by express.static's whole-repo-root static serving (see server.js); includes wellKnown.js (OAuth Protected Resource Metadata)
-main.js            — legacy CLI-style entry point; orchestrates utils directly
+mcpServer/         — MCP server exposing deckhand's operations as tools for AI agents (see "MCP server" below); named mcpServer/ rather than mcp/ so its directory name doesn't collide with the /mcp route if a static folder is ever served (see server.js); includes wellKnown.js (OAuth Protected Resource Metadata)
 main.js            — legacy CLI-style entry point; orchestrates utils directly
 gitlab/index.js    — configured @gitbeaker/rest client
 utils/             — one function per file, re-exported from utils/index.js
-prisma/schema.prisma   — Deploy model + prisma-client generator config (see "Database" above)
-prisma/migrations/     — hand-authored SQL migrations, applied with `prisma migrate deploy`
-database/client.js    — singleton PrismaClient (MariaDB via @prisma/adapter-mariadb)
+database/client.js    — singleton node:sqlite DatabaseSync (see "Database" above)
+database/migrate.js   — schema migrations, applied on open, versioned with PRAGMA user_version
+database/deployRow.js — deploy object ⇄ SQLite row conversion (COLUMNS, toRow, fromRow)
 database/deploys.json — historical JSON backup, no longer read/written by the app (gitignored)
-database/errors.log   — backend error log (one JSON line per error, written by utils/logError.js; gitignored)
+database/dataDir.js   — data dir (DECKHAND_HOME, default ~/.deckhand) holding deckhand.db and errors.log (one JSON line per error, written by utils/logError.js)
 ecosystem.config.js   — pm2 config; reads the root .env with dotenv (versioned, holds no secrets)
-.env                  — secrets: GITLAB_HOST/TOKEN, ENTORNO_NEW_PASSWORD, PORT, DATABASE_URL (gitignored; see .env.example)
-scripts/migrateDeploysJsonToDb.js — one-off deploys.json → MariaDB import (see "Database" above)
+.env                  — secrets: GITLAB_HOST/TOKEN, ENTORNO_NEW_PASSWORD, PORT, DECKHAND_HOME (gitignored; see .env.example)
+scripts/migrateDeploysJsonToDb.js — one-off deploys.json → SQLite import (see "Database" above)
 skills/            — Claude Code skills (one `<name>/SKILL.md` per skill) useful for this project, exposed via the MCP tools list_skills/get_skill so an agent that connects to deckhand can discover and install them; see skills/README.md for the format
-public/            — frontend (see below)
+.claude-plugin/    — plugin.json (userConfig + stdio mcpServers) and marketplace.json (this repo is its own marketplace)
+mcpServer/stdio.js — stdio entry point of the plugin's MCP server
+settings/          — user-editable settings (config.json in the data dir, .env fallback); see "Settings & admin panel"
+remote/            — SSH/SFTP access to an entorno for the remote_* MCP tools (ssh2 connection pool, exec, sftp, audit wrapper); see "Remote tools"
+policy/            — what the remote_* tools may do (policy.json in the data dir, editable in the admin panel); see "Remote tools"
+adminPanel/        — local settings web panel served by the open_settings MCP tool
+commands/          — plugin slash commands (/deckhand:settings)
+bundle/server.js   — esbuild bundle of mcpServer/stdio.js (generated by `yarn build:plugin`, versioned: it's what the plugin runs)
+scripts/buildPlugin.js — esbuild config for the bundle
 ```
 
 ### API routes (router/index.js)
@@ -111,13 +106,35 @@ Deckhand is only the **resource server** here — the auth-server (a separate pr
 - `list_pipelines` and `get_pipeline_jobs` (MCP-only, no REST equivalent) wrap `utils/listPipelines.js`/`utils/listPipelineStages.js` directly, exposing the raw GitLab pipeline/job state — as opposed to `list_deploys`/`get_deploy`/`list_active_deploys`, which only reflect deckhand's own `deploys` row. Same mechanism `createEntorno.js`'s `waitForStage.js` polls internally to decide when a deploy is done: `list_pipelines` finds the pipeline for a ref, `get_pipeline_jobs` returns its stages/jobs so an agent can check the `deploy_workers` stage's status directly against GitLab instead of (or in addition to) deckhand's DB status.
 - `list_skills` and `get_skill` (MCP-only, no REST equivalent) expose the `skills/` folder (see "Project structure" above) via `utils/listSkills.js`/`utils/getSkill.js`. `utils/readSkillFile.js` (a minimal frontmatter parser, no YAML dependency — just flat `key: value` lines) reads each skill's `SKILL.md` for `list_skills`'s `name`/`description` and to validate a skill exists. `get_skill` returns the whole `skills/<name>/` folder — not just `SKILL.md`, since a skill can ship scripts/references/assets alongside it — zipped with `adm-zip` (`name` as the zip's root folder) and sent back as an MCP `resource` content block (`mcpServer/toolResult.js`'s `resourceResult`, base64 `blob` + `application/zip` `mimeType`), so an agent connecting to deckhand can install it by unzipping straight into `.claude/skills/`.
 - `mcpServer/withToolErrorLogging.js` — wraps every tool handler: on success returns its result as-is; on a thrown error, logs via `utils/logError.js` (unless `error.alreadyLogged`, e.g. a `services/*` `HttpError`) and returns `{isError: true, content: [...]}` — the MCP-native way to surface a failed call to the agent, mirroring what `router/withErrorLogging.js` does for REST.
-- `create_deploy` and `redeploy_entorno` keep the REST API's fire-and-forget shape: the tool returns immediately once the deploy row is created/updated, with a note telling the agent to poll `get_deploy` (same polling pattern as the frontend's `POLL_INTERVAL`) until the status is `listo`/`error`. Unlike the REST controllers, they call `services/createDeploy`/`services/redeployEntorno` with `remoteInstall: false`: the initial SSH login (forced password change), copying the SSH key and opening VS Code all require running commands on a real machine, and that must be the MCP caller's machine, not the box deckhand's server runs on — so for `remoteInstall: false` the deploy is marked `listo` as soon as the entorno itself exists (branch + pipeline + SSH access), skipping the `instalando` status and the local `installEntorno`/`openRemoteVscode` calls entirely.
+- `create_deploy` and `redeploy_entorno` keep the REST API's fire-and-forget shape: the tool returns immediately once the deploy row is created/updated, with a note telling the agent to poll `get_deploy` until the status is `listo`/`error`. Unlike the REST controllers, they call `services/createDeploy`/`services/redeployEntorno` with `remoteInstall: false`: the initial SSH login (forced password change), copying the SSH key and opening VS Code all require running commands on a real machine, and that must be the MCP caller's machine, not the box deckhand's server runs on — so for `remoteInstall: false` the deploy is marked `listo` as soon as the entorno itself exists (branch + pipeline + SSH access), skipping the `instalando` status and the local `installEntorno`/`openRemoteVscode` calls entirely.
 - `open_vscode` therefore does **not** call `services/openVscode` (that path still spawns `code` and runs the SSH login locally, which is correct for the REST controller but wrong for an MCP agent on a different machine). It reads the deploy directly via `utils/getDeploy`, and once `status` is `listo` returns `mcpServer/localInstallInstructions.js`'s output: the raw SSH connection fields plus the exact `ssh`/`scp`/`code --folder-uri` commands, phrased as instructions for the calling model to run itself.
 - New `.env` vars (see `.env.example`): `MCP_PUBLIC_URL` (deckhand's own public URL, used to build the metadata above), `MCP_AUTH_ISSUER`, `MCP_AUTH_AUDIENCE`, `MCP_AUTH_JWKS_URI` (or `MCP_AUTH_PUBLIC_KEY` as a static-key fallback), `MCP_AUTH_ALGORITHMS`, `MCP_AUTH_REQUIRED_SCOPES`.
 
+### Remote tools (remote/, policy/)
+
+- `remote_exec`, `remote_read_file`, `remote_write_file`, `remote_edit_file`, `remote_list_dir`, `remote_db_query` work inside the entorno of a deploy (`type` entorno, status `listo`); relative paths resolve against `rutaRaiz`. `list_remote_actions` reads the audit table. Tools carry MCP `annotations` (`readOnlyHint`/`destructiveHint`), passed through by `registerTools.js`.
+- `remote/getConnection.js` — pool of `ssh2` connections (one per deploy+host+port, closed after 5 min idle) with an SFTP session each. Authenticates with `utils/getEntornoPassword.js`'s password; on an auth failure it runs `loginEntorno` (forced password change) and retries. Host keys aren't checked (entornos get a new one on every redeploy).
+- `remote/runRemoteAction.js` — common skeleton of every remote tool: loads deploy + policy, runs the action, writes the `remote_actions` row (allowed/blocked/error, exit code, duration). `block(reason)` throws a 403 `HttpError`.
+- `policy/` — `policy.json` in the data dir (`DEFAULT_POLICY` in `defaults.js` when missing; a broken file throws instead of silently falling back). `database`: `deny` | `readonly` | `allow`; `commandDenyPatterns` (regex vs the full command); `writeDenyPaths` (globs: no "/" → basename, leading "/" → absolute path, otherwise relative to `rutaRaiz`); `databaseConnection` (env files + variable `remote_db_query` reads the MySQL URL from). DB client/Doctrine patterns (`DATABASE_COMMAND_PATTERNS`) aren't user-editable: they're governed by `database`. In `readonly`, `remote_db_query` runs the query inside `START TRANSACTION READ ONLY` with the server's own `mysql` client, so MySQL itself rejects writes.
+- The policy is a guard against an honest agent's mistakes, not a security boundary (the agent is root on the box). Tool descriptions tell the agent not to work around a block.
+
+### Plugin (stdio)
+
+- `.claude-plugin/plugin.json` declares an inline `mcpServers.deckhand` entry that runs `node ${CLAUDE_PLUGIN_ROOT}/mcpServer/launch.js`. No `userConfig`: GitLab host/token and the entorno password are set in the admin panel (see "Settings & admin panel" below). No OAuth/auth-server here: the server is a local child process of Claude Code. `commands/settings.md` is the `/deckhand:settings` command (calls the `open_settings` tool). `.claude-plugin/marketplace.json` lists the repo root (`"source": "./"`) so `/plugin marketplace add 330namajnoon/deckhand` works.
+- The plugin is installed by copying the repo, without `yarn install`, so it can only run the self-contained `bundle/server.js`. Rebuild it with `yarn build:plugin` whenever `mcpServer/`, `services/`, `utils/`, `database/`, `settings/`, `adminPanel/`, `remote/`, `policy/` or `gitlab/` change, and bump `version` in `plugin.json` so users get the update.
+- `mcpServer/launch.js` is the plugin's entry point, not part of the bundle: Claude Code starts it with whatever `node` is first in its PATH (often an old nvm version), while the bundle needs Node >= 22.13 for `node:sqlite`. If the current Node is new enough it just `require`s `bundle/server.js`; otherwise it looks for the newest valid Node (`DECKHAND_NODE`, PATH, nvm, volta, fnm, asdf, Homebrew) and spawns the bundle with it, stdio inherited and signals forwarded. Keep it dependency-free and Node-18-compatible, and write only to stderr.
+- **stdout is the MCP channel.** `mcpServer/stdio.js` gives the transport its own reference to the real stdout and redirects `process.stdout.write`/`console.log`/`console.info` to stderr, so the existing `console.log`s and `waitForStage`'s spinner can't corrupt the protocol. Child processes must not inherit stdio either: `runExpect.js` and `openRemoteVscode.js` spawn with `["ignore", "pipe", "pipe"]` and pipe into `process.stdout`/`process.stderr`. Keep that for any new `spawn`.
+- `mcpServer/stdio.js` loads dotenv only from the repo-root `.env` (dev), never from the cwd — under the plugin the cwd is the user's project.
+
+### Settings & admin panel
+
+- `settings/` — the user-editable settings. `definitions.js` lists them (`GITLAB_HOST`, `GITLAB_TOKEN`, `ENTORNO_NEW_PASSWORD`, `ENTORNO_NEW_PASSWORD_CRM`; key, label, description, `sensitive`, `required`) — add an entry there and the panel shows it. They're stored in `<data dir>/config.json` (`configFile.js`, written atomically with mode 600 by `saveSettings.js`). `getSetting(key)` reads the file on every call and falls back to `process.env[key]` (the web server's `.env`), so panel changes apply without restarting. Read these settings through `getSetting`, never `process.env`. `describeSettings()` is what the panel gets: sensitive values are never sent, only `isSet` and `source` (`panel`/`env`). An empty sensitive field on save means "unchanged"; clearing goes through `clear`.
+- `gitlab/index.js` exports a `Proxy` over a lazily built `Gitlab` client that's rebuilt when host/token change; it throws a "configure it in /deckhand:settings" error on use (not on import) if they're missing, so the MCP server always starts.
+- `adminPanel/startAdminPanel.js` — plain `http` server on `127.0.0.1:<random port>`, started once per process by the `open_settings` MCP tool (`utils/openInBrowser.js` opens it). Every route lives under a random 48-hex-char token path; requests with a different `Host` header get 403 (DNS rebinding), POSTs must be `application/json`. Routes: `GET /` (page from `renderPage.js`, an inline string so it gets bundled — escape `\n` as `\\n` in its client script), `GET|POST /api/settings`, `GET|POST /api/policy` (remote tools policy), `POST /api/test` (calls `Users.showCurrentUser()` with the saved settings). Closes after 30 min idle; `unref`'d so it never keeps the process alive. The web server's HTTP MCP also exposes `open_settings`, but there it would open a browser on the server machine — it's meant for the plugin.
+
 ### Infrastructure
 
-`https://deckhand.sinul.es` lives in its own `server{}` block (subdomain, not a path under `sinul.es` — the frontend/API assume root-relative routes, see `public/src/constants.ts` and `vite.config.ts`'s `base: '/dist/'`) inside `/etc/nginx/sites-available/my_projects`, proxying to `localhost:4200` (`PORT` in `.env`). Reference copy versioned in `infra/nginx/deckhand.sinul.es.conf`, same pattern as `../auth-server/infra/nginx/auth.sinul.es.conf`. Certificate managed by certbot.
+`https://deckhand.sinul.es` lives in its own `server{}` block (subdomain, not a path under `sinul.es` — the API assumes root-relative routes) inside `/etc/nginx/sites-available/my_projects`, proxying to `localhost:4200` (`PORT` in `.env`). Reference copy versioned in `infra/nginx/deckhand.sinul.es.conf`, same pattern as `../auth-server/infra/nginx/auth.sinul.es.conf`. Certificate managed by certbot.
 
 ### utils/
 
@@ -130,7 +147,7 @@ readSkillFile.js       — reads skills/<name>/SKILL.md and parses its minimal n
 listSkills.js          — lists the skills/ subfolders with name/description, for the MCP list_skills tool
 getSkill.js            — returns one skill's raw SKILL.md content by name (404 via HttpError if missing), for the MCP get_skill tool
 listBranches.js        — lists branches of a project
-listRepositoryTree.js  — lists files/folders of a repo path (for the code editor)
+listRepositoryTree.js  — lists files/folders of a repo path
 getRepositoryFile.js   — fetches a repo file's content decoded as utf8
 searchRepository.js    — greps a repo's default branch for a text/term via GitLab's blobs search (Search.all), for the MCP search_repository tool
 listPipelines.js       — lists pipelines of a project
@@ -147,53 +164,30 @@ enableMessenger.js     — builds the commit actions enabling messenger (supervi
 duplicateTestEnvFolder.js — builds the commit actions duplicating every envs/template-branches-test folder as envs/<branch> for store-frontend-v2-* test entornos (monorepos: one per app, e.g. checkout/ and coverage/), pointing environment.js's window.env_target at the synced entorno's url, if any
 createEntorno.js       — creates a task environment (branch + pipeline + log parsing)
 parseEntornoLog.js     — parses environment data (e.g. SSH string) from a job log
-installEntorno.js      — installs the created environment via SSH/expect
-loginEntorno.js        — first SSH login, resolves the forced password change (uses ENTORNO_NEW_PASSWORD)
+installEntorno.js      — installs the created environment: first SSH login (loginEntorno), then copySshKeyToEntorno; a failed key copy is logged but doesn't fail the install
+copySshKeyToEntorno.js — copies the local ~/.ssh/id_ed25519 to the entorno's ~/.ssh/id_rsa (mode 600) over ssh2 SFTP with the NEW password, and checks the size, so git push/pull work from the entorno
+loginEntorno.js        — first SSH login, resolves the forced password change. Skips expect if the new password already works; the expect script matches "Current"/"(current) UNIX" prompts (no `(?i)`: expect's glob pre-filter is case-sensitive), declares "Retype new" before "New", exits 6 on BAD PASSWORD and 4 on timeout, gets passwords via env vars (never in the script), and verifies afterwards with checkEntornoLogin
+getEntornoPassword.js  — new password for an entorno: ENTORNO_NEW_PASSWORD_CRM for CRM projects (if set), ENTORNO_NEW_PASSWORD otherwise
+checkEntornoLogin.js   — ssh2 login + `echo` without TTY: the only reliable proof the forced password change happened
 redeployEntorno.js     — re-runs the deploy of an existing entorno
-runExpect.js           — helper to run expect scripts (SSH automation)
+runExpect.js           — helper to run expect scripts (SSH automation); `env` option for secrets ($env(NAME) in the script), rejects with `exitCode`
 openRemoteVscode.js    — opens the entorno remotely in VS Code
-logError.js            — appends an error entry (timestamp, context, message, stack, details) to database/errors.log; never throws
-saveDeploy.js          — creates a deploy row (Prisma)
-updateDeploy.js        — updates a deploy row by id (Prisma); keys set to `undefined` are written as `null` (clears the field, matching the old JSON-spread behavior)
-removeDeploy.js        — deletes a deploy row by id (Prisma)
-getDeploy.js            — fetches one deploy row by id (Prisma)
-listDeploys.js          — fetches deploy rows, most recent first (Prisma); optional { branchName, projectName, status, limit } filters
-findActiveDeploy.js     — finds an in-progress deploy ("creando"/"instalando") for the same repo/task/type (Prisma)
-listActiveDeploys.js    — lists in-progress deploys ("creando"/"instalando"), most recent first (Prisma); optional { branchName, projectName, limit } filters, for the MCP list_active_deploys tool
-```
-
-## Frontend structure (public/src)
-
-```
-main.tsx           — React entry point
-App.tsx            — routes: / (Home), /deploy (Deploy), /deploys (Deploys)
-constants.ts       — app constants: API_URL, API_ROUTES (all backend routes; parametrized ones are functions, e.g. API_ROUTES.redeploy(id)), POLL_INTERVAL, MAX_SUGGESTIONS
-types.ts           — shared types: Deploy, DeployStatus, EntornoType, Repository
-api.ts             — apiRequest<T>(url, options): fetch wrapper that parses JSON and throws Error with the backend's body.error message
-hooks/
-  useFetch.tsx     — GET hook: { data, error, loading, loader, setData }. url: null skips the fetch (conditional fetches); loader is a ready-to-render inline <Loading /> spinner while loading; setData allows local updates after mutations
-components/        — shared components, re-exported from components/index.ts
-  Page/            — page layout: container (maxWidth prop) + h1 title
-  Loading/         — fetch loading indicator; block mode ("Cargando...") or inline mode (small spinner next to a field label); also exports Spinner
-  ErrorBox/        — red error box
-  Button/          — button with variant (primary | danger | warning) and small props
-  Badge/           — status pill colored by deploy status
-  Form/            — styled form controls: Form, Field, Input, Select, CheckboxField
-  DeploySteps/     — deploy progress steps (creando → instalando → listo) with per-step state; test entornos skip the install step
-  DeployResult/    — result box for a finished deploy (entorno, url, SSH string, expiry)
-  DeployItem/      — row in the deploys list with its actions (open in VS Code, redeploy, delete); each row manages its own loading/error state
-  CodeEditor/      — in-page code editor (CodeMirror 6): browses the repo tree, edits files and accumulates the saved changes as GitLab commit actions (EditAction[]) that the deploy applies in the branch's first commit
-pages/             — one folder per route
-  Home/            — links to the other pages
-  Deploy/          — deploy form (repo/branch/entorno datalists fed by useFetch), polls the deploy status every POLL_INTERVAL while in progress
-  Deploys/         — searchable list of deploys
+openInBrowser.js       — opens a URL in the system browser (open / xdg-open / start), without inheriting stdio
+logRemoteAction.js     — writes a remote_actions audit row (SQLite); never throws
+listRemoteActions.js   — latest remote_actions rows, optionally by deploy (SQLite)
+logError.js            — appends an error entry (timestamp, context, message, stack, details) to errors.log in the data dir; never throws
+saveDeploy.js          — creates a deploy row (SQLite)
+updateDeploy.js        — updates a deploy row by id (SQLite); keys set to `undefined` are written as `null` (clears the field, matching the old JSON-spread behavior)
+removeDeploy.js        — deletes a deploy row by id (SQLite)
+getDeploy.js            — fetches one deploy row by id (SQLite)
+listDeploys.js          — fetches deploy rows, most recent first (SQLite); optional { branchName, projectName, status (value or list), limit } filters
+findActiveDeploy.js     — finds an in-progress deploy ("creando"/"instalando") for the same repo/task/type (SQLite)
+listActiveDeploys.js    — lists in-progress deploys ("creando"/"instalando"), most recent first, via listDeploys; optional { branchName, projectName, limit } filters, for the MCP list_active_deploys tool
 ```
 
 ## Architecture & conventions
 
-- `gitlab/index.js` — exports a configured `@gitbeaker/rest` client (`Gitlab` instance) pointing at the self-hosted instance given by `GITLAB_HOST`. Import it with `require('./gitlab')` and call the API surface directly (e.g. `api.Users.showCurrentUser()`). Do not import the deprecated `@gitbeaker/node` package name.
-- Backend is CommonJS (`require`/`module.exports`); frontend is TypeScript ESM.
-- "One thing per file, re-exported from the folder's `index`" applies everywhere: `utils/`, `controllers/`, `services/`, `mcpServer/tools/`, and front `components/`/`pages/`.
+- `gitlab/index.js` — exports a `@gitbeaker/rest` client (lazy `Proxy`, see "Settings & admin panel") pointing at the self-hosted instance given by the `GITLAB_HOST` setting. Import it with `require('./gitlab')` and call the API surface directly (e.g. `api.Users.showCurrentUser()`). Do not import the deprecated `@gitbeaker/node` package name.
+- The code is CommonJS (`require`/`module.exports`).
+- "One thing per file, re-exported from the folder's `index`" applies everywhere: `utils/`, `controllers/`, `services/`, `mcpServer/tools/`.
 - Business logic shared between the REST API and the MCP server lives in `services/`, not duplicated in `controllers/`/`mcpServer/tools/`. Only add a new `services/*` file when a second surface (MCP, a future CLI, etc.) needs the same non-trivial logic a controller already has — trivial single-`utils/*`-call controllers don't need one.
-- Front components/pages follow the folder convention: `Name/Name.tsx` + `Name/styles.ts` (styled-components, transient `$props` for style-only props) + `Name/index.ts`.
-- All backend URLs used by the front live in `constants.ts` (`API_ROUTES`) — never hardcode fetch URLs in components/pages; do fetches via `apiRequest` or `useFetch` so loading/error handling stays consistent.

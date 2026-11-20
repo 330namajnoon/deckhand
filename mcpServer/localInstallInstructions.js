@@ -1,9 +1,4 @@
-// Instrucciones para el agente MCP: cuando el deploy se crea desde el MCP
-// (services/createDeploy y services/redeployEntorno llamados con
-// remoteInstall: false), deckhand no resuelve el login SSH forzado ni copia
-// la clave SSH ni abre VS Code — esos pasos requieren la máquina del propio
-// agente, no la de deckhand. Este texto le da al modelo los datos de
-// conexión y los comandos exactos para hacerlo él mismo.
+// Con remoteInstall: false el login SSH, la clave y VS Code se hacen en la máquina del agente, no en la de deckhand.
 const localInstallInstructions = (deploy) => {
 	const { usuarioSsh, contrasenaSsh, servidorSsh, puertoSsh, cadenaConexionSsh, rutaRaiz } = deploy;
 

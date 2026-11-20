@@ -5,9 +5,7 @@ const readSkillFile = require("./readSkillFile");
 
 const SKILLS_DIR = path.join(__dirname, "..", "skills");
 
-// Empaqueta skills/<name>/ entera en un .zip (no solo SKILL.md: una skill puede
-// traer scripts/referencias/assets junto al SKILL.md) con el propio <name> como
-// carpeta raíz del zip, para poder descomprimirla directamente como .claude/skills/<name>/.
+// La carpeta entera (scripts, referencias...) con <name> como raíz, lista para descomprimir en .claude/skills/.
 const getSkill = (name) => {
 	const skill = readSkillFile(name);
 	if (!skill) throw new HttpError(`Skill "${name}" no encontrado`, 404);

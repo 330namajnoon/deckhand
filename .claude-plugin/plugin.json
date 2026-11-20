@@ -1,0 +1,27 @@
+{
+  "name": "deckhand",
+  "version": "0.2.1",
+  "description": "Crea, redespliega, consulta y borra entornos de tarea en GitLab (rama + pipeline + instalación por SSH) y trabaja dentro de ellos por SSH (comandos, ficheros, base de datos) con una política configurable, desde Claude Code.",
+  "author": {
+    "name": "Sina Majnoon"
+  },
+  "repository": "https://github.com/330namajnoon/deckhand",
+  "keywords": [
+    "gitlab",
+    "deploy",
+    "entornos",
+    "pipelines",
+    "mcp"
+  ],
+  "mcpServers": {
+    "deckhand": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcpServer/launch.js"
+      ],
+      "env": {
+        "NODE_NO_WARNINGS": "1"
+      }
+    }
+  }
+}

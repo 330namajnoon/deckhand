@@ -1,25 +1,15 @@
-const prisma = require("../database/client");
+const db = require("../database/client");
+const { fromRow } = require("../database/deployRow");
 
-/**
- * Busca, entre los deploys guardados, uno en curso (estado "creando" o
- * "instalando", es decir ni terminado ni fallido) para el mismo repositorio,
- * misma tarea y mismo tipo de entorno. Se usa para no lanzar un deploy
- * duplicado cuando la rama del entorno ya se está creando/desplegando.
- *
- * @param {number|string} projectId - Id del repositorio.
- * @param {string} branchName - Nombre de la tarea (ej. "STORE-2080").
- * @param {'entorno'|'test'} type - Tipo de entorno.
- * @returns {Promise<object|null>} El deploy en curso, si lo hay.
- */
 async function findActiveDeploy(projectId, branchName, type) {
-  return prisma.deploy.findFirst({
-    where: {
-      status: { in: ["creando", "instalando"] },
-      branchName,
-      type,
-      projectId: Number(projectId),
-    },
-  });
+  const row = db
+    .prepare(
+      `SELECT * FROM deploys
+       WHERE status IN ('creando', 'instalando') AND branchName = ? AND type IS ? AND projectId = ?
+       LIMIT 1`
+    )
+    .get(branchName, type ?? null, Number(projectId));
+  return fromRow(row);
 }
 
 module.exports = findActiveDeploy;

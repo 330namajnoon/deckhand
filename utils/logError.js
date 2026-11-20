@@ -1,11 +1,11 @@
 const fs = require("fs/promises");
 const path = require("path");
 
-const ERRORS_LOG = path.join(__dirname, "..", "database", "errors.log");
+const DATA_DIR = require("../database/dataDir");
 
-// Registra un error en database/errors.log, una línea JSON por error, para
-// poder revisarlos a posteriori. Nunca lanza: un fallo al escribir el log no
-// debe tapar el error original.
+const ERRORS_LOG = path.join(DATA_DIR, "errors.log");
+
+// Nunca lanza: un fallo al escribir el log no debe tapar el error original.
 const logError = async (context, error, details) => {
 	const entry = {
 		timestamp: new Date().toISOString(),

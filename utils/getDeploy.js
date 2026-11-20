@@ -1,5 +1,6 @@
-const prisma = require("../database/client");
+const db = require("../database/client");
+const { fromRow } = require("../database/deployRow");
 
-const getDeploy = (id) => prisma.deploy.findUnique({ where: { id } });
+const getDeploy = async (id) => fromRow(db.prepare("SELECT * FROM deploys WHERE id = ?").get(id));
 
 module.exports = getDeploy;

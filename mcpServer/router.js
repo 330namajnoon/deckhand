@@ -11,9 +11,6 @@ const methodNotAllowed = (_req, res) =>
 		})
 	);
 
-// Transporte stateless (sessionIdGenerator: undefined): server + transport
-// nuevos por request, sin estado compartido entre llamadas — encaja con que
-// cada llamada MCP llega ya autenticada por su propio JWT.
 const handlePost = async (req, res) => {
 	const server = buildMcpServer();
 

@@ -2,10 +2,7 @@ const { z } = require("zod");
 const { createDeploy } = require("../../services");
 const { textResult } = require("../toolResult");
 
-// Acciones de commit de GitLab aplicadas en el primer commit de la rama del
-// entorno (mismo formato que EditAction en public/src/types.ts). "move" son
-// los renombrados/duplicados de carpetas y ficheros: llevan previousPath y
-// el content es opcional (si no se manda, GitLab conserva el original).
+// "move" lleva previousPath; sin content, GitLab conserva el original.
 const editActionSchema = z.object({
 	action: z.enum(["create", "update", "delete", "move"]),
 	filePath: z.string(),
@@ -22,7 +19,7 @@ module.exports = {
 		branchName: z
 			.string()
 			.describe(
-				"Nombre de la tarea (ej. 'STORE-2080'), no el nombre final de la rama: deckhand genera la rama del entorno a partir de este valor (tipo + tarea + repo, todo en minúsculas sin separadores, ej. 'entornostore2080storeapies'). No hay que inventar sufijos ni adivinar la convención: se deriva sola, incluso si ya se llamó antes con la misma tarea+repo (se reutiliza la rama existente)."
+				"Nombre de la tarea (ej. 'TASK-123'), no el nombre final de la rama: deckhand genera la rama del entorno a partir de este valor (tipo + tarea + repo, todo en minúsculas sin separadores, ej. 'entornostore2080storeapies'). No hay que inventar sufijos ni adivinar la convención: se deriva sola, incluso si ya se llamó antes con la misma tarea+repo (se reutiliza la rama existente)."
 			),
 		projectId: z.union([z.string(), z.number()]).describe("Id del repositorio en GitLab a desplegar. Usa list_repositories o get_repo_catalog para resolverlo por nombre/país/rol."),
 		projectName: z
