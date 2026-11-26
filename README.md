@@ -17,6 +17,16 @@ Consta de dos partes:
 /plugin install deckhand@deckhand
 ```
 
+Para que se actualice solo, activa el auto-update del marketplace: `/plugin`
+→ **Marketplaces** → `deckhand` → activar auto-update (en los marketplaces de
+terceros viene desactivado). El plugin no fija versión, así que cada commit
+publicado es una versión nueva: Claude Code la descarga poco después de
+empezar una sesión y avisa de que ejecutes `/reload-plugins`. Los skills
+cifrados se descifran en la carpeta nueva al arrancar el MCP y aparecen tras
+un `/reload-plugins` más. Para actualizar a mano:
+`claude plugin marketplace update deckhand` y
+`claude plugin update deckhand@deckhand`.
+
 Después, ejecuta `/deckhand:settings`: abre en el navegador un panel local
 donde se meten (y se cambian cuando haga falta) la URL de GitLab, el token
 (scope `api`) y la contraseña nueva de los entornos. Se guardan en
