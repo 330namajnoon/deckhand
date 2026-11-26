@@ -79437,11 +79437,12 @@ while :; do
 done
 for f in CLAUDE.md .claude/CLAUDE.md CLAUDE.local.md; do [ -f "$f" ] && printf 'project\\t%s\\n' "$PWD/$f"; done
 [ -f .claude/settings.json ] && printf 'settings\\t%s\\n' "$PWD/.claude/settings.json"
-list() { find "$2" "\${@:3}" 2>/dev/null | sort | while IFS= read -r p; do printf '%s\\t%s\\n' "$1" "$PWD/\${p#./}"; done; }
-[ -d .claude/rules ] && list rule .claude/rules -type f -name '*.md'
-[ -d .claude/skills ] && list skill .claude/skills -mindepth 2 -maxdepth 2 -name SKILL.md
-[ -d .claude/agents ] && list agent .claude/agents -type f -name '*.md'
-[ -d .claude/commands ] && list command .claude/commands -type f -name '*.md'
+list() { c=$1; shift; find "$@" 2>/dev/null | sort | while IFS= read -r p; do printf '%s\\t%s\\n' "$c" "$PWD/\${p#./}"; done; }
+# -L: como Claude Code, se siguen los enlaces simb\xF3licos (skills compartidos enlazados desde otra carpeta).
+[ -d .claude/rules ] && list rule -L .claude/rules -type f -name '*.md'
+[ -d .claude/skills ] && list skill -L .claude/skills -mindepth 2 -maxdepth 2 -name SKILL.md
+[ -d .claude/agents ] && list agent -L .claude/agents -type f -name '*.md'
+[ -d .claude/commands ] && list command -L .claude/commands -type f -name '*.md'
 list nested . -maxdepth 6 \\( ${PRUNED_DIRS.map((d) => `-name ${d}`).join(" -o ")} \\) -prune -o -type f -name CLAUDE.md ! -path ./CLAUDE.md -print
 true
 `;
