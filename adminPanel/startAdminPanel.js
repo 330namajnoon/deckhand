@@ -2,6 +2,7 @@ const http = require("http");
 const crypto = require("crypto");
 const { describeSettings, saveSettings, CONFIG_FILE } = require("../settings");
 const { readPolicy, savePolicy, DEFAULT_POLICY, POLICY_FILE } = require("../policy");
+const { PASSWORD_SETTING, privateContentStatus, unlockPrivateContent } = require("../privateContent");
 const api = require("../gitlab");
 const renderPage = require("./renderPage");
 
@@ -39,7 +40,16 @@ const readJson = (req) =>
 		req.on("error", reject);
 	});
 
-const stateBody = () => ({ settings: describeSettings(), configFile: CONFIG_FILE });
+const stateBody = () => ({ settings: describeSettings(), configFile: CONFIG_FILE, privateContent: privateContentStatus() });
+
+// Una contraseña nueva del contenido privado se comprueba descifrando antes de guardar nada.
+const saveSettingsBody = async (values, clear) => {
+	const password = typeof values[PASSWORD_SETTING] === "string" ? values[PASSWORD_SETTING].trim() : "";
+	if (password && privateContentStatus().available) await unlockPrivateContent(password);
+
+	saveSettings(values, clear);
+	return stateBody();
+};
 
 // Con policy.json roto se devuelve el error y los valores por defecto, para poder arreglarlo desde el panel.
 const policyBody = () => {
@@ -93,8 +103,7 @@ const startAdminPanel = async () => {
 				const body = await readJson(req);
 
 				if (route === "/api/settings") {
-					saveSettings(body.values ?? {}, Array.isArray(body.clear) ? body.clear : []);
-					return send(res, 200, stateBody());
+					return send(res, 200, await saveSettingsBody(body.values ?? {}, Array.isArray(body.clear) ? body.clear : []));
 				}
 				if (route === "/api/policy") {
 					savePolicy(body.policy);

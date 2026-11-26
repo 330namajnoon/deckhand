@@ -36447,12 +36447,14 @@ var require_package = __commonJS({
     module2.exports = {
       name: "deckhand",
       version: "1.0.0",
+      license: "MIT",
       packageManager: "yarn@4.9.1",
       main: "server.js",
       scripts: {
         start: "node server.js",
         "build:plugin": "node scripts/buildPlugin.js",
-        mcp: "node mcpServer/stdio.js"
+        mcp: "node mcpServer/stdio.js",
+        "encrypt:private": "node scripts/encryptPrivate.js"
       },
       dependencies: {
         "@gitbeaker/rest": "^43.8.0",
@@ -73437,6 +73439,13 @@ var require_definitions = __commonJS({
         description: "Igual que la anterior, para los entornos de proyectos de CRM, cuya pol\xEDtica de contrase\xF1as es m\xE1s estricta y rechaza la de los dem\xE1s. Si est\xE1 vac\xEDa, se usa la anterior.",
         sensitive: true,
         required: false
+      },
+      {
+        key: "PRIVATE_CONTENT_PASSWORD",
+        label: "Contrase\xF1a de los skills y agentes",
+        description: "Descifra los skills, agentes y comandos que el plugin trae cifrados (private.enc). Al guardarla se descifran al momento; si no es correcta, no se guarda nada. Despu\xE9s ejecuta /reload-plugins o reinicia Claude Code para que aparezcan.",
+        sensitive: true,
+        required: false
       }
     ];
     module2.exports = SETTINGS;
@@ -78433,6 +78442,210 @@ var require_policy = __commonJS({
   }
 });
 
+// privateContent/paths.js
+var require_paths = __commonJS({
+  "privateContent/paths.js"(exports2, module2) {
+    var path = require("path");
+    var PLUGIN_ROOT = path.join(__dirname, "..");
+    var ENCRYPTED_FILE = path.join(PLUGIN_ROOT, "private.enc");
+    var MARKER_FILE = path.join(PLUGIN_ROOT, ".private-unlocked.json");
+    var CONTENT_DIRS = ["skills", "agents", "commands"];
+    var PUBLIC_FILES = ["skills/README.md", "commands/settings.md"];
+    var PASSWORD_SETTING = "PRIVATE_CONTENT_PASSWORD";
+    module2.exports = { PLUGIN_ROOT, ENCRYPTED_FILE, MARKER_FILE, CONTENT_DIRS, PUBLIC_FILES, PASSWORD_SETTING };
+  }
+});
+
+// privateContent/cipher.js
+var require_cipher = __commonJS({
+  "privateContent/cipher.js"(exports2, module2) {
+    var crypto = require("crypto");
+    var { promisify } = require("util");
+    var scrypt = promisify(crypto.scrypt);
+    var MAGIC = Buffer.from("DKHPRIV1");
+    var SALT_LENGTH = 16;
+    var IV_LENGTH = 12;
+    var TAG_LENGTH = 16;
+    var HEADER_LENGTH = MAGIC.length + 3 + SALT_LENGTH;
+    var DEFAULT_PARAMS = { log2N: 17, r: 8, p: 1 };
+    var deriveKey = (password, salt, { log2N, r, p }) => {
+      const N = 2 ** log2N;
+      return scrypt(password.normalize("NFC"), salt, 32, { N, r, p, maxmem: 256 * N * r });
+    };
+    var encrypt = async (plaintext, password) => {
+      const salt = crypto.randomBytes(SALT_LENGTH);
+      const iv = crypto.randomBytes(IV_LENGTH);
+      const { log2N, r, p } = DEFAULT_PARAMS;
+      const header = Buffer.concat([MAGIC, Buffer.from([log2N, r, p]), salt]);
+      const cipher = crypto.createCipheriv("aes-256-gcm", await deriveKey(password, salt, DEFAULT_PARAMS), iv);
+      cipher.setAAD(header);
+      const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+      return Buffer.concat([header, iv, cipher.getAuthTag(), ciphertext]);
+    };
+    var decrypt = async (data, password) => {
+      if (data.length < HEADER_LENGTH + IV_LENGTH + TAG_LENGTH || !data.subarray(0, MAGIC.length).equals(MAGIC)) {
+        throw new Error("private.enc no tiene un formato v\xE1lido");
+      }
+      const header = data.subarray(0, HEADER_LENGTH);
+      const [log2N, r, p] = data.subarray(MAGIC.length, MAGIC.length + 3);
+      const salt = data.subarray(MAGIC.length + 3, HEADER_LENGTH);
+      const iv = data.subarray(HEADER_LENGTH, HEADER_LENGTH + IV_LENGTH);
+      const tag = data.subarray(HEADER_LENGTH + IV_LENGTH, HEADER_LENGTH + IV_LENGTH + TAG_LENGTH);
+      const ciphertext = data.subarray(HEADER_LENGTH + IV_LENGTH + TAG_LENGTH);
+      const decipher = crypto.createDecipheriv("aes-256-gcm", await deriveKey(password, salt, { log2N, r, p }), iv);
+      decipher.setAAD(header);
+      decipher.setAuthTag(tag);
+      try {
+        return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      } catch {
+        throw new Error("Contrase\xF1a incorrecta (o private.enc corrupto)");
+      }
+    };
+    module2.exports = { encrypt, decrypt };
+  }
+});
+
+// privateContent/marker.js
+var require_marker = __commonJS({
+  "privateContent/marker.js"(exports2, module2) {
+    var crypto = require("crypto");
+    var fs = require("fs");
+    var { ENCRYPTED_FILE, MARKER_FILE } = require_paths();
+    var hashEncryptedFile = () => crypto.createHash("sha256").update(fs.readFileSync(ENCRYPTED_FILE)).digest("hex");
+    var readMarker = () => {
+      try {
+        return JSON.parse(fs.readFileSync(MARKER_FILE, "utf8"));
+      } catch {
+        return null;
+      }
+    };
+    var writeMarker = (hash, files) => {
+      fs.writeFileSync(MARKER_FILE, JSON.stringify({ hash, files, unlockedAt: (/* @__PURE__ */ new Date()).toISOString() }, null, 2) + "\n");
+    };
+    module2.exports = { hashEncryptedFile, readMarker, writeMarker };
+  }
+});
+
+// privateContent/collectPrivateFiles.js
+var require_collectPrivateFiles = __commonJS({
+  "privateContent/collectPrivateFiles.js"(exports2, module2) {
+    var fs = require("fs");
+    var path = require("path");
+    var { PLUGIN_ROOT, CONTENT_DIRS, PUBLIC_FILES } = require_paths();
+    var walk = (relDir) => {
+      const absDir = path.join(PLUGIN_ROOT, relDir);
+      if (!fs.existsSync(absDir)) return [];
+      return fs.readdirSync(absDir, { withFileTypes: true }).flatMap((entry) => {
+        const rel = `${relDir}/${entry.name}`;
+        if (entry.isDirectory()) return walk(rel);
+        return entry.isFile() && entry.name !== ".DS_Store" ? [rel] : [];
+      });
+    };
+    var collectPrivateFiles = () => CONTENT_DIRS.flatMap(walk).filter((rel) => !PUBLIC_FILES.includes(rel)).sort();
+    module2.exports = collectPrivateFiles;
+  }
+});
+
+// privateContent/unlockPrivateContent.js
+var require_unlockPrivateContent = __commonJS({
+  "privateContent/unlockPrivateContent.js"(exports2, module2) {
+    var fs = require("fs");
+    var path = require("path");
+    var AdmZip = require_adm_zip();
+    var { decrypt } = require_cipher();
+    var { hashEncryptedFile, readMarker, writeMarker } = require_marker();
+    var { PLUGIN_ROOT, ENCRYPTED_FILE, CONTENT_DIRS, PUBLIC_FILES } = require_paths();
+    var isAllowedPath = (rel) => {
+      const parts = rel.split("/");
+      return parts.length >= 2 && CONTENT_DIRS.includes(parts[0]) && !parts.some((part) => part === "" || part === "." || part === "..") && !rel.includes("\\") && !PUBLIC_FILES.includes(rel);
+    };
+    var unlockPrivateContent = async (password) => {
+      if (!fs.existsSync(ENCRYPTED_FILE)) throw new Error("Este plugin no trae contenido cifrado (private.enc)");
+      const hash = hashEncryptedFile();
+      const zip = new AdmZip(await decrypt(fs.readFileSync(ENCRYPTED_FILE), password));
+      const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
+      const rejected = entries.map((entry) => entry.entryName).filter((rel) => !isAllowedPath(rel));
+      if (rejected.length) throw new Error(`private.enc contiene rutas no permitidas: ${rejected.join(", ")}`);
+      const files = entries.map((entry) => entry.entryName).sort();
+      for (const stale of readMarker()?.files ?? []) {
+        if (!files.includes(stale) && isAllowedPath(stale)) fs.rmSync(path.join(PLUGIN_ROOT, ...stale.split("/")), { force: true });
+      }
+      for (const entry of entries) {
+        const dest = path.join(PLUGIN_ROOT, ...entry.entryName.split("/"));
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, entry.getData());
+      }
+      writeMarker(hash, files);
+      return files;
+    };
+    module2.exports = unlockPrivateContent;
+  }
+});
+
+// privateContent/privateContentStatus.js
+var require_privateContentStatus = __commonJS({
+  "privateContent/privateContentStatus.js"(exports2, module2) {
+    var fs = require("fs");
+    var { hashEncryptedFile, readMarker } = require_marker();
+    var { ENCRYPTED_FILE } = require_paths();
+    var summarize = (files) => ({
+      skills: files.filter((f) => /^skills\/[^/]+\/SKILL\.md$/.test(f)).map((f) => f.split("/")[1]),
+      agents: files.filter((f) => /^agents\/[^/]+\.md$/.test(f)).map((f) => f.slice("agents/".length, -3)),
+      commands: files.filter((f) => /^commands\/[^/]+\.md$/.test(f)).map((f) => f.slice("commands/".length, -3))
+    });
+    var privateContentStatus = () => {
+      if (!fs.existsSync(ENCRYPTED_FILE)) return { available: false, unlocked: false };
+      const marker = readMarker();
+      const unlocked = Boolean(marker) && marker.hash === hashEncryptedFile();
+      return { available: true, unlocked, ...unlocked ? summarize(marker.files) : {} };
+    };
+    module2.exports = privateContentStatus;
+  }
+});
+
+// privateContent/ensurePrivateContent.js
+var require_ensurePrivateContent = __commonJS({
+  "privateContent/ensurePrivateContent.js"(exports2, module2) {
+    var { getSetting } = require_settings();
+    var { PASSWORD_SETTING } = require_paths();
+    var privateContentStatus = require_privateContentStatus();
+    var unlockPrivateContent = require_unlockPrivateContent();
+    var ensurePrivateContent2 = async () => {
+      const status = privateContentStatus();
+      if (!status.available || status.unlocked) return status;
+      const password = getSetting(PASSWORD_SETTING);
+      if (!password) return status;
+      await unlockPrivateContent(password);
+      return privateContentStatus();
+    };
+    module2.exports = ensurePrivateContent2;
+  }
+});
+
+// privateContent/index.js
+var require_privateContent = __commonJS({
+  "privateContent/index.js"(exports2, module2) {
+    var paths = require_paths();
+    var { encrypt, decrypt } = require_cipher();
+    var { hashEncryptedFile, writeMarker } = require_marker();
+    var collectPrivateFiles = require_collectPrivateFiles();
+    var unlockPrivateContent = require_unlockPrivateContent();
+    var privateContentStatus = require_privateContentStatus();
+    var ensurePrivateContent2 = require_ensurePrivateContent();
+    module2.exports = {
+      ...paths,
+      encrypt,
+      decrypt,
+      hashEncryptedFile,
+      writeMarker,
+      collectPrivateFiles,
+      unlockPrivateContent,
+      privateContentStatus,
+      ensurePrivateContent: ensurePrivateContent2
+    };
+  }
+});
+
 // adminPanel/renderPage.js
 var require_renderPage = __commonJS({
   "adminPanel/renderPage.js"(exports2, module2) {
@@ -78564,7 +78777,18 @@ var require_renderPage = __commonJS({
 		return node;
 	};
 
-	const render = ({ settings, configFile }) => {
+	const PRIVATE_KEY = "PRIVATE_CONTENT_PASSWORD";
+
+	const describePrivate = (p) => {
+		if (!p || !p.available) return "Este plugin no trae contenido cifrado.";
+		if (!p.unlocked) return "Cifrado: mete la contrase\xF1a y guarda para descifrarlo.";
+		const parts = [["skills", p.skills], ["agentes", p.agents], ["comandos", p.commands]]
+			.filter(([, list]) => list && list.length)
+			.map(([label, list]) => label + ": " + list.join(", "));
+		return "Descifrado. " + (parts.length ? parts.join(" \xB7 ") : "Sin skills, agentes ni comandos.");
+	};
+
+	const render = ({ settings, configFile, privateContent }) => {
 		fieldsEl.replaceChildren(...settings.map((s) => {
 			const id = "f_" + s.key;
 			const input = el("input", {
@@ -78573,6 +78797,7 @@ var require_renderPage = __commonJS({
 				placeholder: s.sensitive && s.isSet ? "Guardado. D\xE9jalo vac\xEDo para no cambiarlo" : "",
 			});
 			const meta = el("div", { className: "meta" });
+			if (s.key === PRIVATE_KEY) meta.append(el("span", { textContent: describePrivate(privateContent) }));
 			if (s.source === "env") meta.append(el("span", { textContent: "Valor actual tomado del .env" }));
 			if (s.sensitive && s.source === "panel") {
 				meta.append(el("label", {}, [el("input", { type: "checkbox", name: "clear", value: s.key }), "Borrar el valor guardado"]));
@@ -78597,8 +78822,12 @@ var require_renderPage = __commonJS({
 		for (const [key, value] of form.entries()) if (key !== "clear") values[key] = value;
 		saveBtn.disabled = true;
 		try {
-			render(await request("api/settings", { values, clear }));
-			showStatus("ok", "Ajustes guardados.");
+			const data = await request("api/settings", { values, clear });
+			render(data);
+			const unlockedNow = values[PRIVATE_KEY] && data.privateContent && data.privateContent.unlocked;
+			showStatus("ok", unlockedNow
+				? "Ajustes guardados y contenido privado descifrado. Ejecuta /reload-plugins en Claude Code (o rein\xEDcialo) para cargarlo."
+				: "Ajustes guardados.");
 		} catch (e) {
 			showStatus("err", e.message);
 		} finally {
@@ -78692,6 +78921,7 @@ var require_startAdminPanel = __commonJS({
     var crypto = require("crypto");
     var { describeSettings, saveSettings, CONFIG_FILE } = require_settings();
     var { readPolicy, savePolicy, DEFAULT_POLICY, POLICY_FILE } = require_policy();
+    var { PASSWORD_SETTING, privateContentStatus, unlockPrivateContent } = require_privateContent();
     var api = require_gitlab();
     var renderPage = require_renderPage();
     var IDLE_MS = 30 * 60 * 1e3;
@@ -78722,7 +78952,13 @@ var require_startAdminPanel = __commonJS({
       });
       req.on("error", reject);
     });
-    var stateBody = () => ({ settings: describeSettings(), configFile: CONFIG_FILE });
+    var stateBody = () => ({ settings: describeSettings(), configFile: CONFIG_FILE, privateContent: privateContentStatus() });
+    var saveSettingsBody = async (values, clear) => {
+      const password = typeof values[PASSWORD_SETTING] === "string" ? values[PASSWORD_SETTING].trim() : "";
+      if (password && privateContentStatus().available) await unlockPrivateContent(password);
+      saveSettings(values, clear);
+      return stateBody();
+    };
     var policyBody = () => {
       try {
         return { policy: readPolicy(), defaults: DEFAULT_POLICY, policyFile: POLICY_FILE };
@@ -78765,8 +79001,7 @@ var require_startAdminPanel = __commonJS({
             }
             const body = await readJson(req);
             if (route === "/api/settings") {
-              saveSettings(body.values ?? {}, Array.isArray(body.clear) ? body.clear : []);
-              return send(res, 200, stateBody());
+              return send(res, 200, await saveSettingsBody(body.values ?? {}, Array.isArray(body.clear) ? body.clear : []));
             }
             if (route === "/api/policy") {
               savePolicy(body.policy);
@@ -79121,6 +79356,294 @@ ROLLBACK;
   }
 });
 
+// remote/parseFrontmatter.js
+var require_parseFrontmatter = __commonJS({
+  "remote/parseFrontmatter.js"(exports2, module2) {
+    var unquote = (value) => value.replace(/^(['"])(.*)\1$/, "$2");
+    var parseFrontmatter = (raw) => {
+      const match = raw.replace(/\r\n/g, "\n").match(/^---\n([\s\S]*?)\n---/);
+      if (!match) return {};
+      const fields = {};
+      let currentKey = null;
+      let mode = null;
+      for (const line of match[1].split("\n")) {
+        const keyMatch = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
+        if (keyMatch) {
+          currentKey = keyMatch[1];
+          const value = keyMatch[2].trim();
+          if (/^[>|][-+]?$/.test(value)) {
+            mode = "block";
+            fields[currentKey] = "";
+          } else if (value === "") {
+            mode = "list";
+            fields[currentKey] = [];
+          } else {
+            mode = null;
+            fields[currentKey] = unquote(value);
+          }
+          continue;
+        }
+        if (!currentKey || !line.trim()) continue;
+        if (mode === "list" && /^\s*-\s+/.test(line)) {
+          fields[currentKey].push(unquote(line.replace(/^\s*-\s+/, "").trim()));
+        } else if (mode === "block") {
+          fields[currentKey] = `${fields[currentKey]} ${line.trim()}`.trim();
+        }
+      }
+      return fields;
+    };
+    module2.exports = parseFrontmatter;
+  }
+});
+
+// remote/findImports.js
+var require_findImports = __commonJS({
+  "remote/findImports.js"(exports2, module2) {
+    var findImports = (markdown) => {
+      const text = markdown.replace(/\r\n/g, "\n").replace(/^(```|~~~)[\s\S]*?^\1/gm, "").replace(/`[^`\n]*`/g, "");
+      const found = /* @__PURE__ */ new Set();
+      for (const match of text.matchAll(/(?:^|\s)@((?:~\/|\.{1,2}\/|\/)?[\w.\-/]+)/g)) {
+        const target = match[1].replace(/[.,;:)]+$/, "");
+        if (/[/.]/.test(target)) found.add(target);
+      }
+      return [...found];
+    };
+    module2.exports = findImports;
+  }
+});
+
+// remote/loadEntornoContext.js
+var require_loadEntornoContext = __commonJS({
+  "remote/loadEntornoContext.js"(exports2, module2) {
+    var path = require("path");
+    var execCommand = require_execCommand();
+    var resolveRemotePath = require_resolveRemotePath();
+    var sftp = require_sftp();
+    var parseFrontmatter = require_parseFrontmatter();
+    var findImports = require_findImports();
+    var MAX_FILE_BYTES = 100 * 1024;
+    var MAX_TOTAL_BYTES = 200 * 1024;
+    var MAX_IMPORT_DEPTH = 4;
+    var MAX_INDEXED = 200;
+    var PRUNED_DIRS = ["node_modules", "vendor", ".git", "var", "dist", "build", ".cache", ".claude", ".next", "coverage"];
+    var DISCOVERY_SCRIPT = `
+printf 'home\\t%s\\n' "$HOME"
+[ -f "$HOME/.claude/CLAUDE.md" ] && printf 'user\\t%s\\n' "$HOME/.claude/CLAUDE.md"
+d=$(dirname "$PWD")
+while :; do
+	for f in CLAUDE.md CLAUDE.local.md; do [ -f "$d/$f" ] && printf 'ancestor\\t%s\\n' "\${d%/}/$f"; done
+	[ "$d" = / ] && break
+	d=$(dirname "$d")
+done
+for f in CLAUDE.md .claude/CLAUDE.md CLAUDE.local.md; do [ -f "$f" ] && printf 'project\\t%s\\n' "$PWD/$f"; done
+[ -f .claude/settings.json ] && printf 'settings\\t%s\\n' "$PWD/.claude/settings.json"
+list() { find "$2" "\${@:3}" 2>/dev/null | sort | while IFS= read -r p; do printf '%s\\t%s\\n' "$1" "$PWD/\${p#./}"; done; }
+[ -d .claude/rules ] && list rule .claude/rules -type f -name '*.md'
+[ -d .claude/skills ] && list skill .claude/skills -mindepth 2 -maxdepth 2 -name SKILL.md
+[ -d .claude/agents ] && list agent .claude/agents -type f -name '*.md'
+[ -d .claude/commands ] && list command .claude/commands -type f -name '*.md'
+list nested . -maxdepth 6 \\( ${PRUNED_DIRS.map((d) => `-name ${d}`).join(" -o ")} \\) -prune -o -type f -name CLAUDE.md ! -path ./CLAUDE.md -print
+true
+`;
+    var discover = async (deploy, root) => {
+      const result = await execCommand(deploy, DISCOVERY_SCRIPT, { cwd: root, timeoutMs: 60 * 1e3 });
+      if (result.exitCode !== 0) throw new Error(`No se ha podido explorar ${root}: ${result.stderr || `exit ${result.exitCode}`}`);
+      const found = { home: "/root", user: [], ancestor: [], project: [], settings: [], rule: [], skill: [], agent: [], command: [], nested: [] };
+      for (const line of result.stdout.split("\n")) {
+        const tab = line.indexOf("	");
+        if (tab === -1) continue;
+        const [category, value] = [line.slice(0, tab), line.slice(tab + 1)];
+        if (category === "home") found.home = value;
+        else if (found[category]) found[category].push(value);
+      }
+      found.ancestor.sort((a, b) => a.split("/").length - b.split("/").length);
+      return found;
+    };
+    var readText = async (deploy, file) => {
+      const buffer = await sftp.readFile(deploy, file);
+      const truncated = buffer.length > MAX_FILE_BYTES;
+      const text = buffer.subarray(0, MAX_FILE_BYTES).toString("utf8");
+      return truncated ? `${text}
+[... recortado a ${MAX_FILE_BYTES / 1024} KB: lee el resto con remote_read_file ...]` : text;
+    };
+    var resolveImport = (target, fromFile, home) => {
+      if (target.startsWith("~/")) return path.posix.join(home, target.slice(2));
+      return path.posix.resolve(path.posix.dirname(fromFile), target);
+    };
+    var readInstructions = async (deploy, found) => {
+      const instructions = [];
+      const pending = [];
+      const seen = /* @__PURE__ */ new Set();
+      let total = 0;
+      const visit = async (file, scope, importedFrom, depth) => {
+        if (seen.has(file)) return;
+        seen.add(file);
+        if (total >= MAX_TOTAL_BYTES) return pending.push(file);
+        let content;
+        try {
+          content = await readText(deploy, file);
+        } catch {
+          return;
+        }
+        total += Buffer.byteLength(content);
+        instructions.push({ path: file, scope, importedFrom, content });
+        if (depth >= MAX_IMPORT_DEPTH) return;
+        for (const target of findImports(content)) {
+          await visit(resolveImport(target, file, found.home), scope, file, depth + 1);
+        }
+      };
+      for (const file of found.user) await visit(file, "usuario", null, 0);
+      for (const file of found.ancestor) await visit(file, "carpeta superior", null, 0);
+      for (const file of found.project) await visit(file, "proyecto", null, 0);
+      return { instructions, pending };
+    };
+    var readRules = (deploy, files) => Promise.all(
+      files.slice(0, MAX_INDEXED).map(async (file) => {
+        const content = await readText(deploy, file);
+        const { paths } = parseFrontmatter(content);
+        return { path: file, paths: Array.isArray(paths) ? paths : paths ? [paths] : [], content };
+      })
+    );
+    var readIndex = (deploy, files, nameOf) => Promise.all(
+      files.slice(0, MAX_INDEXED).map(async (file) => {
+        const { name, description } = parseFrontmatter(await readText(deploy, file));
+        return { name: name || nameOf(file), description: description || "", path: file };
+      })
+    );
+    var loadEntornoContext = async (deploy) => {
+      const root = resolveRemotePath(deploy);
+      const found = await discover(deploy, root);
+      const [{ instructions, pending }, rules, skills, agents, commands, settings] = await Promise.all([
+        readInstructions(deploy, found),
+        readRules(deploy, found.rule),
+        readIndex(deploy, found.skill, (file) => path.posix.basename(path.posix.dirname(file))),
+        readIndex(deploy, found.agent, (file) => path.posix.basename(file, ".md")),
+        readIndex(deploy, found.command, (file) => path.posix.basename(file, ".md")),
+        found.settings.length ? readText(deploy, found.settings[0]) : null
+      ]);
+      return {
+        root,
+        instructions,
+        pending,
+        rules,
+        nested: found.nested,
+        skills,
+        agents,
+        commands,
+        settings: settings && { path: found.settings[0], content: settings }
+      };
+    };
+    module2.exports = loadEntornoContext;
+  }
+});
+
+// remote/formatEntornoContext.js
+var require_formatEntornoContext = __commonJS({
+  "remote/formatEntornoContext.js"(exports2, module2) {
+    var path = require("path");
+    var isEmpty = (ctx) => !ctx.instructions.length && !ctx.rules.length && !ctx.nested.length && !ctx.skills.length && !ctx.agents.length && !ctx.commands.length && !ctx.settings;
+    var relative = (root, file) => file.startsWith(`${root}/`) ? path.posix.relative(root, file) : file;
+    var indexList = (root, items) => items.map(({ name, description, path: file }) => `- **${name}**${description ? ` \u2014 ${description}` : ""} (\`${relative(root, file)}\`)`).join("\n");
+    var formatEntornoContext = (deploy, ctx) => {
+      const title = `# Contexto del entorno ${deploy.branchName || deploy.id} (${deploy.projectName || "proyecto"}), ra\xEDz ${ctx.root}`;
+      if (isEmpty(ctx)) {
+        return `${title}
+
+Este entorno no tiene CLAUDE.md ni carpeta .claude/ (ni en la ra\xEDz ni en carpetas superiores): no hay instrucciones propias que seguir.`;
+      }
+      const sections = [
+        title,
+        "Aplica todo esto como si la sesi\xF3n de Claude Code estuviera abierta en la ra\xEDz del entorno. Las rutas relativas son relativas a esa ra\xEDz. La pol\xEDtica de deckhand sigue mandando: si una instrucci\xF3n del entorno choca con un bloqueo, gana el bloqueo."
+      ];
+      if (ctx.instructions.length) {
+        sections.push(
+          "## Instrucciones (CLAUDE.md)",
+          ...ctx.instructions.map(({ path: file, scope, importedFrom, content }) => {
+            const origin = importedFrom ? `importado desde ${relative(ctx.root, importedFrom)}` : scope;
+            return `### ${file} (${origin})
+
+${content.trim()}`;
+          })
+        );
+      }
+      if (ctx.pending.length) {
+        sections.push(
+          "## Instrucciones sin cargar (l\xEDmite de tama\xF1o)",
+          `L\xE9elas con remote_read_file antes de seguir:
+${ctx.pending.map((file) => `- \`${file}\``).join("\n")}`
+        );
+      }
+      if (ctx.rules.length) {
+        sections.push(
+          "## Reglas (.claude/rules)",
+          ...ctx.rules.map(({ path: file, paths, content }) => {
+            const scope = paths.length ? `solo al trabajar con ficheros que encajen con: ${paths.join(", ")}` : "siempre";
+            const body = content.replace(/\r\n/g, "\n").replace(/^---\n[\s\S]*?\n---\n?/, "");
+            return `### ${relative(ctx.root, file)} (${scope})
+
+${body.trim()}`;
+          })
+        );
+      }
+      if (ctx.nested.length) {
+        sections.push(
+          "## CLAUDE.md anidados",
+          "Antes de leer o tocar ficheros dentro de una de estas carpetas, lee su CLAUDE.md con remote_read_file y s\xEDguelo tambi\xE9n:\n" + ctx.nested.map((file) => `- \`${relative(ctx.root, file)}\``).join("\n")
+        );
+      }
+      if (ctx.skills.length) {
+        sections.push(
+          "## Skills del entorno",
+          "Cuando la tarea encaje con la descripci\xF3n de uno, lee su SKILL.md con remote_read_file (y los ficheros que cite, en su misma carpeta) y s\xEDguelo, haciendo sus comandos con remote_exec y sus lecturas/escrituras con remote_*_file:\n" + indexList(ctx.root, ctx.skills)
+        );
+      }
+      if (ctx.agents.length) {
+        sections.push(
+          "## Agentes del entorno",
+          "Para delegar en uno, lee su .md con remote_read_file y lanza un subagente con ese cuerpo como instrucciones, el deployId y la indicaci\xF3n de trabajar solo con las tools remote_* de deckhand:\n" + indexList(ctx.root, ctx.agents)
+        );
+      }
+      if (ctx.commands.length) {
+        sections.push(
+          "## Comandos del entorno (.claude/commands)",
+          "Si el usuario pide uno por su nombre, lee su .md con remote_read_file y sigue sus instrucciones:\n" + indexList(ctx.root, ctx.commands)
+        );
+      }
+      if (ctx.settings) {
+        sections.push(
+          "## .claude/settings.json",
+          "Respeta sus `permissions.deny` (no lo hagas) y `permissions.ask` (pregunta antes al usuario). Los hooks no se ejecutan desde deckhand.\n\n```json\n" + ctx.settings.content.trim() + "\n```"
+        );
+      }
+      return sections.join("\n\n");
+    };
+    module2.exports = formatEntornoContext;
+  }
+});
+
+// remote/entornoContextNotice.js
+var require_entornoContextNotice = __commonJS({
+  "remote/entornoContextNotice.js"(exports2, module2) {
+    var resolveRemotePath = require_resolveRemotePath();
+    var sftp = require_sftp();
+    var loaded = /* @__PURE__ */ new Set();
+    var notified = /* @__PURE__ */ new Set();
+    var keyOf = (deploy) => `${deploy.id}|${deploy.servidorSsh}|${deploy.puertoSsh}`;
+    var CONTEXT_PATHS = ["CLAUDE.md", ".claude", "CLAUDE.local.md"];
+    var markContextLoaded = (deploy) => loaded.add(keyOf(deploy));
+    var contextNoticeFor = async (deploy) => {
+      const key = keyOf(deploy);
+      if (loaded.has(key) || notified.has(key)) return null;
+      notified.add(key);
+      const present = await Promise.all(CONTEXT_PATHS.map((p) => sftp.exists(deploy, resolveRemotePath(deploy, p)).catch(() => false)));
+      const found = CONTEXT_PATHS.filter((_, i) => present[i]);
+      if (!found.length) return null;
+      return `\u26A0\uFE0F Este entorno tiene instrucciones propias (${found.join(", ")}) que todav\xEDa no has cargado. Antes de seguir trabajando en \xE9l, llama a remote_load_context con deployId "${deploy.id}" y apl\xEDcalas como si la sesi\xF3n estuviera abierta all\xED.`;
+    };
+    module2.exports = { markContextLoaded, contextNoticeFor };
+  }
+});
+
 // remote/index.js
 var require_remote = __commonJS({
   "remote/index.js"(exports2, module2) {
@@ -79132,6 +79655,9 @@ var require_remote = __commonJS({
     var sftp = require_sftp();
     var runRemoteAction = require_runRemoteAction();
     var runDbQuery = require_runDbQuery();
+    var loadEntornoContext = require_loadEntornoContext();
+    var formatEntornoContext = require_formatEntornoContext();
+    var { markContextLoaded, contextNoticeFor } = require_entornoContextNotice();
     module2.exports = {
       getConnection,
       getRemoteDeploy,
@@ -79140,7 +79666,34 @@ var require_remote = __commonJS({
       execCommand,
       sftp,
       runRemoteAction,
-      runDbQuery
+      runDbQuery,
+      loadEntornoContext,
+      formatEntornoContext,
+      markContextLoaded,
+      contextNoticeFor
+    };
+  }
+});
+
+// mcpServer/tools/remoteLoadContext.js
+var require_remoteLoadContext = __commonJS({
+  "mcpServer/tools/remoteLoadContext.js"(exports2, module2) {
+    var { z } = require_zod();
+    var { runRemoteAction, loadEntornoContext, formatEntornoContext, markContextLoaded } = require_remote();
+    var { textResult } = require_toolResult();
+    module2.exports = {
+      name: "remote_load_context",
+      title: "Cargar las instrucciones de un entorno (CLAUDE.md, .claude/)",
+      description: "Carga lo que Claude Code cargar\xEDa si la sesi\xF3n estuviera abierta en la ra\xEDz del proyecto del entorno de un deploy: el contenido de los CLAUDE.md (ra\xEDz, .claude/CLAUDE.md, CLAUDE.local.md, carpetas superiores y ~/.claude/CLAUDE.md del entorno) con sus imports @ruta resueltos, las reglas de .claude/rules, los CLAUDE.md de subcarpetas (para leerlos al trabajar en ellas), el \xEDndice de skills, agentes y comandos de .claude/ y .claude/settings.json. Ll\xE1mala UNA vez antes de leer, escribir o ejecutar nada en un entorno (y otra si cambias de entorno), y aplica lo que devuelva durante todo el trabajo en \xE9l como si fueran tus propias instrucciones de proyecto. Solo lee: no modifica nada.",
+      annotations: { readOnlyHint: true, openWorldHint: true },
+      inputSchema: {
+        deployId: z.string().describe("Id del deploy (de list_deploys/get_deploy), con status listo")
+      },
+      handler: async (input) => runRemoteAction({ deployId: input.deployId, tool: "remote_load_context", input }, async ({ deploy }) => {
+        const context = await loadEntornoContext(deploy);
+        markContextLoaded(deploy);
+        return textResult(formatEntornoContext(deploy, context));
+      })
     };
   }
 });
@@ -79397,6 +79950,7 @@ var require_tools = __commonJS({
     var redeployEntorno = require_redeployEntorno3();
     var createDeploy = require_createDeploy2();
     var openSettings = require_openSettings();
+    var remoteLoadContext = require_remoteLoadContext();
     var remoteExec = require_remoteExec();
     var remoteReadFile = require_remoteReadFile();
     var remoteWriteFile = require_remoteWriteFile();
@@ -79425,6 +79979,7 @@ var require_tools = __commonJS({
       redeployEntorno,
       createDeploy,
       openSettings,
+      remoteLoadContext,
       remoteExec,
       remoteReadFile,
       remoteWriteFile,
@@ -79455,14 +80010,35 @@ var require_withToolErrorLogging = __commonJS({
   }
 });
 
+// mcpServer/withEntornoContextNotice.js
+var require_withEntornoContextNotice = __commonJS({
+  "mcpServer/withEntornoContextNotice.js"(exports2, module2) {
+    var { getRemoteDeploy, contextNoticeFor } = require_remote();
+    var withEntornoContextNotice = (handler) => async (args, extra) => {
+      const result = await handler(args, extra);
+      if (result?.isError || !args?.deployId) return result;
+      try {
+        const notice = await contextNoticeFor(await getRemoteDeploy(args.deployId));
+        if (notice) return { ...result, content: [{ type: "text", text: notice }, ...result.content] };
+      } catch {
+      }
+      return result;
+    };
+    module2.exports = withEntornoContextNotice;
+  }
+});
+
 // mcpServer/registerTools.js
 var require_registerTools = __commonJS({
   "mcpServer/registerTools.js"(exports2, module2) {
     var tools = require_tools();
     var withToolErrorLogging = require_withToolErrorLogging();
+    var withEntornoContextNotice = require_withEntornoContextNotice();
+    var needsContextNotice = (name) => name.startsWith("remote_") && name !== "remote_load_context";
     var registerTools = (server) => {
       tools.forEach(({ name, title, description, inputSchema, annotations, handler }) => {
-        server.registerTool(name, { title, description, inputSchema, annotations }, withToolErrorLogging(name, handler));
+        const wrapped = needsContextNotice(name) ? withEntornoContextNotice(handler) : handler;
+        server.registerTool(name, { title, description, inputSchema, annotations }, withToolErrorLogging(name, wrapped));
       });
     };
     module2.exports = registerTools;
@@ -79499,10 +80075,12 @@ require_main().config({ path: require("path").join(__dirname, "..", ".env"), qui
 var { StdioServerTransport } = require_stdio2();
 var buildMcpServer = require_server4();
 var { logError } = require_utils7();
+var { ensurePrivateContent } = require_privateContent();
 var main = async () => {
   const server = buildMcpServer();
   await server.connect(new StdioServerTransport(process.stdin, protocolOut));
   console.error("deckhand MCP (stdio) listo");
+  ensurePrivateContent().catch((error) => logError("private content unlock (stdio)", error));
 };
 process.on("unhandledRejection", (reason) => {
   console.error("\u274C Promesa rechazada sin gestionar:", reason);

@@ -19,11 +19,15 @@ require("dotenv").config({ path: require("path").join(__dirname, "..", ".env"), 
 const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
 const buildMcpServer = require("./server");
 const { logError } = require("../utils");
+const { ensurePrivateContent } = require("../privateContent");
 
 const main = async () => {
 	const server = buildMcpServer();
 	await server.connect(new StdioServerTransport(process.stdin, protocolOut));
 	console.error("deckhand MCP (stdio) listo");
+
+	// Tras instalar o actualizar el plugin su carpeta es nueva: se vuelve a descifrar con la contraseña guardada.
+	ensurePrivateContent().catch((error) => logError("private content unlock (stdio)", error));
 };
 
 process.on("unhandledRejection", (reason) => {

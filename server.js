@@ -7,6 +7,7 @@ const bodyParser = require('body-parser');
 const path = require('path');
 const { logError } = require('./utils');
 const { mountMcp } = require('./mcpServer');
+const { ensurePrivateContent } = require('./privateContent');
 
 process.on('unhandledRejection', (reason) => {
 	console.error('❌ Promesa rechazada sin gestionar:', reason);
@@ -22,6 +23,9 @@ const port = process.env.PORT || 4000;
 const server = new Server(port, path.join(__dirname, 'static'), [bodyParser.json()], [router], []);
 
 mountMcp(server.app);
+
+// Para que list_skills/get_skill del MCP por HTTP vean los skills cifrados (contraseña en el .env).
+ensurePrivateContent().catch((error) => logError('private content unlock', error));
 
 server.start(() => {
 	console.log(`Server is running on port ${port}`);

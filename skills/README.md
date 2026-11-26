@@ -1,5 +1,10 @@
 # skills/
 
+Los skills de esta carpeta no se versionan en claro (gitignored): se publican
+cifrados en `../private.enc` y el plugin los descifra aquí con la contraseña
+del panel de ajustes. Tras crear o cambiar uno, ejecuta `yarn encrypt:private`
+y versiona `private.enc`. Este README es lo único público de la carpeta.
+
 Skills de Claude Code útiles para trabajar en este proyecto, expuestos vía MCP
 (tools `list_skills` / `get_skill`, ver `mcpServer/tools/`) para que un agente
 que se conecta a deckhand pueda descubrirlos e instalarlos.

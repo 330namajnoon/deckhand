@@ -29,6 +29,14 @@ const SETTINGS = [
 		sensitive: true,
 		required: false,
 	},
+	{
+		key: "PRIVATE_CONTENT_PASSWORD",
+		label: "Contraseña de los skills y agentes",
+		description:
+			"Descifra los skills, agentes y comandos que el plugin trae cifrados (private.enc). Al guardarla se descifran al momento; si no es correcta, no se guarda nada. Después ejecuta /reload-plugins o reinicia Claude Code para que aparezcan.",
+		sensitive: true,
+		required: false,
+	},
 ];
 
 module.exports = SETTINGS;

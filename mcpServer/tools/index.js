@@ -18,6 +18,7 @@ const openVscode = require("./openVscode");
 const redeployEntorno = require("./redeployEntorno");
 const createDeploy = require("./createDeploy");
 const openSettings = require("./openSettings");
+const remoteLoadContext = require("./remoteLoadContext");
 const remoteExec = require("./remoteExec");
 const remoteReadFile = require("./remoteReadFile");
 const remoteWriteFile = require("./remoteWriteFile");
@@ -47,6 +48,7 @@ module.exports = [
 	redeployEntorno,
 	createDeploy,
 	openSettings,
+	remoteLoadContext,
 	remoteExec,
 	remoteReadFile,
 	remoteWriteFile,

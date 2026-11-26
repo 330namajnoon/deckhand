@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "build:plugin": "node scripts/buildPlugin.js",
-    "mcp": "node mcpServer/stdio.js"
+    "mcp": "node mcpServer/stdio.js",
+    "encrypt:private": "node scripts/encryptPrivate.js"
   },
   "dependencies": {
     "@gitbeaker/rest": "^43.8.0",

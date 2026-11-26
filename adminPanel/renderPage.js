@@ -127,7 +127,18 @@ const renderPage = () => `<!doctype html>
 		return node;
 	};
 
-	const render = ({ settings, configFile }) => {
+	const PRIVATE_KEY = "PRIVATE_CONTENT_PASSWORD";
+
+	const describePrivate = (p) => {
+		if (!p || !p.available) return "Este plugin no trae contenido cifrado.";
+		if (!p.unlocked) return "Cifrado: mete la contraseña y guarda para descifrarlo.";
+		const parts = [["skills", p.skills], ["agentes", p.agents], ["comandos", p.commands]]
+			.filter(([, list]) => list && list.length)
+			.map(([label, list]) => label + ": " + list.join(", "));
+		return "Descifrado. " + (parts.length ? parts.join(" · ") : "Sin skills, agentes ni comandos.");
+	};
+
+	const render = ({ settings, configFile, privateContent }) => {
 		fieldsEl.replaceChildren(...settings.map((s) => {
 			const id = "f_" + s.key;
 			const input = el("input", {
@@ -136,6 +147,7 @@ const renderPage = () => `<!doctype html>
 				placeholder: s.sensitive && s.isSet ? "Guardado. Déjalo vacío para no cambiarlo" : "",
 			});
 			const meta = el("div", { className: "meta" });
+			if (s.key === PRIVATE_KEY) meta.append(el("span", { textContent: describePrivate(privateContent) }));
 			if (s.source === "env") meta.append(el("span", { textContent: "Valor actual tomado del .env" }));
 			if (s.sensitive && s.source === "panel") {
 				meta.append(el("label", {}, [el("input", { type: "checkbox", name: "clear", value: s.key }), "Borrar el valor guardado"]));
@@ -160,8 +172,12 @@ const renderPage = () => `<!doctype html>
 		for (const [key, value] of form.entries()) if (key !== "clear") values[key] = value;
 		saveBtn.disabled = true;
 		try {
-			render(await request("api/settings", { values, clear }));
-			showStatus("ok", "Ajustes guardados.");
+			const data = await request("api/settings", { values, clear });
+			render(data);
+			const unlockedNow = values[PRIVATE_KEY] && data.privateContent && data.privateContent.unlocked;
+			showStatus("ok", unlockedNow
+				? "Ajustes guardados y contenido privado descifrado. Ejecuta /reload-plugins en Claude Code (o reinícialo) para cargarlo."
+				: "Ajustes guardados.");
 		} catch (e) {
 			showStatus("err", e.message);
 		} finally {

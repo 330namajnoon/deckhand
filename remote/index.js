@@ -6,6 +6,9 @@ const execCommand = require("./execCommand");
 const sftp = require("./sftp");
 const runRemoteAction = require("./runRemoteAction");
 const runDbQuery = require("./runDbQuery");
+const loadEntornoContext = require("./loadEntornoContext");
+const formatEntornoContext = require("./formatEntornoContext");
+const { markContextLoaded, contextNoticeFor } = require("./entornoContextNotice");
 
 module.exports = {
 	getConnection,
@@ -16,4 +19,8 @@ module.exports = {
 	sftp,
 	runRemoteAction,
 	runDbQuery,
+	loadEntornoContext,
+	formatEntornoContext,
+	markContextLoaded,
+	contextNoticeFor,
 };

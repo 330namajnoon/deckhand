@@ -1,6 +1,6 @@
 {
   "name": "deckhand",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "license": "MIT",
   "description": "Crea, redespliega, consulta y borra entornos de tarea en GitLab (rama + pipeline + instalación por SSH) y trabaja dentro de ellos por SSH (comandos, ficheros, base de datos) con una política configurable, desde Claude Code.",
   "author": {
